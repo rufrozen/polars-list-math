@@ -1,0 +1,18 @@
+[package]
+name = "polars-list-math"
+version = "0.1.1"
+edition = "2021"
+license = "MIT"
+description = "List-oriented math and expression helpers for Polars."
+
+[lib]
+name = "_native"
+path = "src/lib.rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+arrow = { package = "polars-arrow", version = "0.54.4", default-features = false }
+polars = { version = "0.54.4", default-features = false, features = ["dtype-struct", "allow_unused"] }
+pyo3 = { version = "0.28" }
+pyo3-polars = { version = "0.27.0", features = ["derive", "dtype-struct"] }
+serde = { version = "1", features = ["derive"] }

@@ -1,0 +1,82 @@
+[build-system]
+requires = ["maturin>=1.8,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "polars-list-math"
+version = "0.1.1"
+description = "List-oriented math and expression helpers for Polars."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
+keywords = ["polars", "list", "dataframe", "rust", "pyo3"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = ["polars>=1.39.3"]
+
+[dependency-groups]
+dev = [
+    "maturin>=1.8,<2.0",
+    "pytest>=8",
+    "pyright>=1.1.400",
+    "ruff>=0.12",
+]
+publish = [
+    "maturin>=1.8,<2.0",
+    "twine>=5",
+]
+
+[tool.maturin]
+manifest-path = "rust/Cargo.toml"
+python-source = "."
+module-name = "polars_list_math._native"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["polars_list_math", "tests"]
+extend-exclude = [".local"]
+
+[tool.pyright]
+include = ["polars_list_math", "tests"]
+exclude = [".local", ".venv", "build", "dist"]
+pythonVersion = "3.12"
+typeCheckingMode = "basic"
+venvPath = "."
+venv = ".venv"
+
+[tool.ruff.lint]
+select = ["N", "B", "A", "E", "W", "F", "ASYNC", "S", "D", "I"]
+ignore = [
+  "PT001",
+  "D100",
+  "D101",
+  "D102",
+  "D103",
+  "D107",
+  "D104",
+  "W293",
+  "S101",
+  "D212",
+  "D200",
+  "UP007",
+  "S105",
+  "S311",
+  "S106",
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
