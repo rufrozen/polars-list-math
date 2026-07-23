@@ -1,6 +1,7 @@
 name: Publish
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - "v*"
@@ -9,14 +10,12 @@ permissions:
   contents: read
 
 jobs:
-  build:
-    name: Build distribution
+  build-sdist:
+    name: Build sdist
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
-
-      - uses: dtolnay/rust-toolchain@stable
 
       - uses: actions/setup-python@v5
         with:
@@ -26,25 +25,120 @@ jobs:
         with:
           enable-cache: true
 
-      - run: make check-dist
+      - run: uv build --sdist
+      - run: uv run --group publish twine check dist/*
 
       - uses: actions/upload-artifact@v4
         with:
-          name: dist
-          path: dist/*
+          name: dist-sdist
+          path: dist/*.tar.gz
+
+  build-wheels:
+    name: Build wheel (${{ matrix.label }}, py${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: linux-x86_64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            manylinux: "2014"
+            python-version: "3.12"
+            interpreter: python3.12
+          - label: linux-x86_64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            manylinux: "2014"
+            python-version: "3.13"
+            interpreter: python3.13
+          - label: macos-x86_64
+            os: macos-15-intel
+            target: x86_64-apple-darwin
+            manylinux: auto
+            python-version: "3.12"
+            interpreter: python
+          - label: macos-x86_64
+            os: macos-15-intel
+            target: x86_64-apple-darwin
+            manylinux: auto
+            python-version: "3.13"
+            interpreter: python
+          - label: macos-aarch64
+            os: macos-15
+            target: aarch64-apple-darwin
+            manylinux: auto
+            python-version: "3.12"
+            interpreter: python
+          - label: macos-aarch64
+            os: macos-15
+            target: aarch64-apple-darwin
+            manylinux: auto
+            python-version: "3.13"
+            interpreter: python
+          - label: windows-x86_64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            manylinux: auto
+            python-version: "3.12"
+            interpreter: python
+          - label: windows-x86_64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            manylinux: auto
+            python-version: "3.13"
+            interpreter: python
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - uses: PyO3/maturin-action@v1
+        with:
+          command: build
+          maturin-version: v1.14.1
+          target: ${{ matrix.target }}
+          manylinux: ${{ matrix.manylinux }}
+          args: >-
+            --release
+            --locked
+            --compatibility pypi
+            -i ${{ matrix.interpreter }}
+            -o dist
+
+      - run: uv run --group publish twine check dist/*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.label }}-py${{ matrix.python-version }}
+          path: dist/*.whl
 
   publish:
     name: Publish to PyPI
-    needs: build
+    needs:
+      - build-sdist
+      - build-wheels
     runs-on: ubuntu-latest
-    environment: pypi
+    environment:
+      name: pypi
+      url: https://pypi.org/p/polars-list-math
     permissions:
       id-token: write
 
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: dist
+          pattern: dist-*
           path: dist
+          merge-multiple: true
 
       - uses: pypa/gh-action-pypi-publish@release/v1

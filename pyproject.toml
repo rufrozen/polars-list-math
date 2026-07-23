@@ -6,7 +6,7 @@ build-backend = "maturin"
 name = "polars-list-math"
 version = "0.1.1"
 description = "List-oriented math and expression helpers for Polars."
-readme = "README.md"
+readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.12"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -20,9 +20,18 @@ classifiers = [
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Topic :: Scientific/Engineering :: Mathematics",
     "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
 ]
 dependencies = ["polars>=1.39.3"]
+
+[project.urls]
+Homepage = "https://github.com/rufrozen/polars-list-math"
+Repository = "https://github.com/rufrozen/polars-list-math"
+Documentation = "https://github.com/rufrozen/polars-list-math/tree/main/docs"
+Issues = "https://github.com/rufrozen/polars-list-math/issues"
 
 [dependency-groups]
 dev = [

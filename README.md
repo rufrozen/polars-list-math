@@ -25,11 +25,11 @@ Requires Python 3.12+ and `polars>=1.39.3`.
 | Method | Result | Docs |
 | --- | --- | --- |
 | `Expr.list.zip(...)` | Zip lists into `list[struct]` | [Polars proposal](https://github.com/pola-rs/polars/issues/22719) |
-| `Expr.list.combinations(...)` | Pair each item with itself and later items in the same list | [docs/combinations.md](docs/combinations.md) |
-| `Expr.list.combinations_to(...)` | Pair each item with each item from another list | [docs/combinations.md](docs/combinations.md) |
-| `Expr.list.similarity(...)` | Weighted similarity between two lists | [docs/similarity.md](docs/similarity.md) |
-| `Expr.list.mean_similarity(...)` | Mean similarity inside a nested-list row | [docs/similarity.md](docs/similarity.md) |
-| `Expr.list.mean_similarity_to(...)` | Mean similarity to reference nested lists | [docs/similarity.md](docs/similarity.md) |
+| `Expr.list.combinations(...)` | Pair each item with itself and later items in the same list | [Combinations](https://github.com/rufrozen/polars-list-math/blob/main/docs/combinations.md) |
+| `Expr.list.combinations_to(...)` | Pair each item with each item from another list | [Combinations](https://github.com/rufrozen/polars-list-math/blob/main/docs/combinations.md) |
+| `Expr.list.similarity(...)` | Weighted similarity between two lists | [Similarity](https://github.com/rufrozen/polars-list-math/blob/main/docs/similarity.md) |
+| `Expr.list.mean_similarity(...)` | Mean similarity inside a nested-list row | [Similarity](https://github.com/rufrozen/polars-list-math/blob/main/docs/similarity.md) |
+| `Expr.list.mean_similarity_to(...)` | Mean similarity to reference nested lists | [Similarity](https://github.com/rufrozen/polars-list-math/blob/main/docs/similarity.md) |
 
 The Python helper `py_list_similarity(...)` computes the same weighted
 similarity for plain Python sequences.
@@ -64,9 +64,11 @@ make develop
 make test
 ```
 
-Build and upload:
+Build and check the package locally:
 
 ```bash
-make build
-make publish
+make check-dist
 ```
+
+Release steps are in
+[docs/publishing.md](https://github.com/rufrozen/polars-list-math/blob/main/docs/publishing.md).

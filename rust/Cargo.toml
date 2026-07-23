@@ -4,6 +4,9 @@ version = "0.1.1"
 edition = "2021"
 license = "MIT"
 description = "List-oriented math and expression helpers for Polars."
+homepage = "https://github.com/rufrozen/polars-list-math"
+repository = "https://github.com/rufrozen/polars-list-math"
+documentation = "https://github.com/rufrozen/polars-list-math/tree/main/docs"
 
 [lib]
 name = "_native"
