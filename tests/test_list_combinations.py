@@ -61,6 +61,27 @@ def test_list_combinations_supports_with_index() -> None:
     ]
 
 
+def test_list_combinations_skip_self_omits_diagonal_pairs() -> None:
+    df = pl.DataFrame(
+        {"a": [[10, 20, 30], [1], [], None, [None, 2]]},
+        schema={"a": pl.List(pl.Int64)},
+    )
+
+    out = df.select(pl.col("a").list.combinations(with_index=True, skip_self=True).alias("pairs"))
+
+    assert out["pairs"].to_list() == [
+        [
+            {"left_index": 0, "right_index": 1, "left_value": 10, "right_value": 20},
+            {"left_index": 0, "right_index": 2, "left_value": 10, "right_value": 30},
+            {"left_index": 1, "right_index": 2, "left_value": 20, "right_value": 30},
+        ],
+        [],
+        [],
+        None,
+        [{"left_index": 0, "right_index": 1, "left_value": None, "right_value": 2}],
+    ]
+
+
 def test_list_combinations_includes_indexes_when_index_name_is_given() -> None:
     df = pl.DataFrame({"a": [[10]]}, schema={"a": pl.List(pl.Int64)})
 
@@ -253,6 +274,9 @@ def test_list_combinations_validation_errors() -> None:
 
     with pytest.raises(TypeError, match="with_index"):
         pl.col("a").list.combinations(with_index="yes")  # type: ignore[arg-type]
+
+    with pytest.raises(TypeError, match="skip_self"):
+        pl.col("a").list.combinations(skip_self="yes")  # type: ignore[arg-type]
 
 
 @pytest.mark.skipif(

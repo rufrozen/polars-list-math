@@ -36,16 +36,18 @@ def list_combinations(
     left_index: str | None = None,
     right_index: str | None = None,
     skip_null: bool = False,
+    skip_self: bool = False,
 ) -> pl.Expr:
     """Build a list expression with all ``i <= j`` pairs from each input list."""
     fields = _normalize_fields(left_index, right_index, left_value, right_value, with_index)
     _validate_skip_null(skip_null)
+    _validate_skip_self(skip_self)
     if _native_library_available():
         return register_plugin_function(
             plugin_path=_LIB,
             function_name="list_combinations",
             args=[expr],
-            kwargs=_kwargs(fields, with_index, skip_null),
+            kwargs=_kwargs(fields, with_index, skip_null, skip_self),
             is_elementwise=True,
             use_abs_path=True,
         )
@@ -53,7 +55,7 @@ def list_combinations(
     parsed_expr = _parse_into_expr(expr)
 
     return parsed_expr.map_elements(
-        lambda value: _combinations_row(value, fields, skip_null),
+        lambda value: _combinations_row(value, fields, skip_null, skip_self),
         return_dtype=None,
         skip_nulls=False,
     )
@@ -78,7 +80,7 @@ def list_combinations_to(
             plugin_path=_LIB,
             function_name="list_combinations_to",
             args=[expr, target],
-            kwargs=_kwargs(fields, with_index, skip_null),
+            kwargs=_kwargs(fields, with_index, skip_null, skip_self=False),
             is_elementwise=True,
             use_abs_path=True,
         )
@@ -119,6 +121,7 @@ def _expr_list_combinations(
     left_index: str | None = None,
     right_index: str | None = None,
     skip_null: bool = False,
+    skip_self: bool = False,
 ) -> pl.Expr:
     base_expr = wrap_expr(self._pyexpr)
     return list_combinations(
@@ -129,6 +132,7 @@ def _expr_list_combinations(
         left_index=left_index,
         right_index=right_index,
         skip_null=skip_null,
+        skip_self=skip_self,
     )
 
 
@@ -160,6 +164,7 @@ def _combinations_row(
     value: Any,
     fields: _CombinationFields,
     skip_null: bool,
+    skip_self: bool,
 ) -> list[dict[str, Any]] | None:
     values = _list_or_none(value, "list.combinations")
     if values is None:
@@ -168,6 +173,8 @@ def _combinations_row(
     out: list[dict[str, Any]] = []
     for left_index in range(len(values)):
         for right_index in range(left_index, len(values)):
+            if skip_self and left_index == right_index:
+                continue
             left_value = values[left_index]
             right_value = values[right_index]
             if skip_null and (left_value is None or right_value is None):
@@ -258,7 +265,18 @@ def _validate_skip_null(skip_null: bool) -> None:
         raise TypeError(msg)
 
 
-def _kwargs(fields: _CombinationFields, with_index: bool, skip_null: bool) -> dict[str, Any]:
+def _validate_skip_self(skip_self: bool) -> None:
+    if not isinstance(skip_self, bool):
+        msg = "skip_self must be a bool"
+        raise TypeError(msg)
+
+
+def _kwargs(
+    fields: _CombinationFields,
+    with_index: bool,
+    skip_null: bool,
+    skip_self: bool,
+) -> dict[str, Any]:
     return {
         "left_index": fields.left_index if fields.include_index else None,
         "right_index": fields.right_index if fields.include_index else None,
@@ -266,6 +284,7 @@ def _kwargs(fields: _CombinationFields, with_index: bool, skip_null: bool) -> di
         "right_value": fields.right_value,
         "with_index": with_index,
         "skip_null": skip_null,
+        "skip_self": skip_self,
     }
 
 

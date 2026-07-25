@@ -19,6 +19,8 @@ struct CombinationsKwargs {
     right_value: String,
     with_index: bool,
     skip_null: bool,
+    #[serde(default)]
+    skip_self: bool,
 }
 
 struct CombinationFields {
@@ -86,7 +88,7 @@ fn list_combinations(inputs: &[Series], kwargs: CombinationsKwargs) -> PolarsRes
     let fields = combination_fields(&kwargs)?;
     let prepared = prepare_inputs(inputs)?;
     let list = prepared[0].downcast_as_array();
-    let total_capacity = total_self_pairs(list);
+    let total_capacity = total_self_pairs(list, kwargs.skip_self);
 
     let mut left_indices = Vec::<u32>::with_capacity(total_capacity);
     let mut right_indices = Vec::<u32>::with_capacity(total_capacity);
@@ -111,7 +113,12 @@ fn list_combinations(inputs: &[Series], kwargs: CombinationsKwargs) -> PolarsRes
         let mut row_count = 0usize;
 
         for left_index in 0..length {
-            for right_index in left_index..length {
+            let first_right_index = if kwargs.skip_self {
+                left_index + 1
+            } else {
+                left_index
+            };
+            for right_index in first_right_index..length {
                 row_count += usize::from(push_pair(
                     &mut left_indices,
                     &mut right_indices,
@@ -409,12 +416,16 @@ fn prepare_inputs(inputs: &[Series]) -> PolarsResult<Vec<ListChunked>> {
     Ok(out)
 }
 
-fn total_self_pairs(list: &LargeListArray) -> usize {
+fn total_self_pairs(list: &LargeListArray, skip_self: bool) -> usize {
     (0..list.len())
         .map(|row| {
             if list.is_valid(row) {
                 let length = list.offsets().length_at(row);
-                length.saturating_mul(length.saturating_add(1)) / 2
+                if skip_self {
+                    length.saturating_mul(length.saturating_sub(1)) / 2
+                } else {
+                    length.saturating_mul(length.saturating_add(1)) / 2
+                }
             } else {
                 0
             }

@@ -22,10 +22,12 @@ pl.col("a").list.combinations(
     left_index=None,
     right_index=None,
     skip_null=False,
+    skip_self=False,
 )
 ```
 
 `combinations` builds all pairs inside one list where `left_index <= right_index`.
+Set `skip_self=True` to omit pairs where `left_index == right_index`.
 
 ```python
 pl.col("a").list.combinations_to(
@@ -128,8 +130,8 @@ df.select(
 
 If the input list for a row is null, the result for that row is null.
 
-If a list is empty, the result is an empty list. If it has one item, the result
-contains one self-pair.
+If a list is empty, the result is an empty list. By default, if it has one item,
+the result contains one self-pair.
 
 By default, null values inside lists are kept:
 
@@ -154,3 +156,22 @@ df.select(
 
 `skip_null` filters pair rows only. It does not turn the whole output list into
 null. When index fields are emitted, they keep indexes from the original lists.
+
+Set `skip_self=True` to omit self-pairs:
+
+```python
+df.select(
+    pl.col("a")
+    .list.combinations(skip_self=True)
+    .alias("pairs")
+)
+```
+
+```text
+[10, 20, 30].combinations(skip_self=True)
+→ [
+  {"left_value": 10, "right_value": 20},
+  {"left_value": 10, "right_value": 30},
+  {"left_value": 20, "right_value": 30},
+]
+```

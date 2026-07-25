@@ -25,7 +25,7 @@ Requires Python 3.12+ and `polars>=1.39.3`.
 | Method | Result | Docs |
 | --- | --- | --- |
 | `Expr.list.zip(...)` | Zip lists into `list[struct]` | [Polars proposal](https://github.com/pola-rs/polars/issues/22719) |
-| `Expr.list.combinations(...)` | Pair each item with itself and later items in the same list | [Combinations](https://github.com/rufrozen/polars-list-math/blob/main/docs/combinations.md) |
+| `Expr.list.combinations(...)` | Pair items in one list, optionally skipping self-pairs | [Combinations](https://github.com/rufrozen/polars-list-math/blob/main/docs/combinations.md) |
 | `Expr.list.combinations_to(...)` | Pair each item with each item from another list | [Combinations](https://github.com/rufrozen/polars-list-math/blob/main/docs/combinations.md) |
 | `Expr.list.similarity(...)` | Weighted similarity between two lists | [Similarity](https://github.com/rufrozen/polars-list-math/blob/main/docs/similarity.md) |
 | `Expr.list.mean_similarity(...)` | Mean similarity inside a nested-list row | [Similarity](https://github.com/rufrozen/polars-list-math/blob/main/docs/similarity.md) |
