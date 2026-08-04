@@ -19,3 +19,4 @@ polars = { version = "0.54.4", default-features = false, features = ["dtype-stru
 pyo3 = { version = "0.28" }
 pyo3-polars = { version = "0.27.0", features = ["derive", "dtype-struct"] }
 serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
