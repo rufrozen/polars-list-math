@@ -9,13 +9,23 @@ Each file is a standalone example of one part of `polars-list-math`:
   Python;
 - [`mean_similarity.py`](mean_similarity.py) compares lists inside nested-list
   columns.
+- [`json_object_items.py`](json_object_items.py) converts JSON objects into
+  lists of key/value structs;
+- [`json_array_values.py`](json_array_values.py) converts JSON arrays into
+  lists of strings;
+- [`url_query_encode.py`](url_query_encode.py) encodes Struct and key/value-list
+  expressions as query strings;
+- [`url_build.py`](url_build.py) assembles URLs from optional component
+  expressions.
 
 Install the project, then run an example from the repository root:
 
 ```bash
 make develop
 uv run python examples/list_zip.py
+uv run python examples/json_object_items.py
+uv run python examples/url_build.py
 ```
 
-The import below is intentional in every example: importing
-`polars_list_math` registers the additional methods on `Expr.list`.
+Imports of `polars_list_math` are intentional: importing the package registers
+the additional methods on `Expr.list` and `Expr.str`.
