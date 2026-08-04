@@ -56,6 +56,10 @@ df.with_columns(
 )
 ```
 
+More complete, runnable examples are available in the
+[`examples`](https://github.com/rufrozen/polars-list-math/tree/main/examples)
+directory.
+
 ## Development
 
 ```bash
