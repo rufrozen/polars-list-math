@@ -1,7 +1,7 @@
 """Convert JSON arrays into lists of string values."""
 
 import polars as pl
-import polars_list_math  # noqa: F401
+from polars_list_math import json_array_values
 
 
 def main() -> None:
@@ -16,13 +16,13 @@ def main() -> None:
     )
 
     result = frame.with_columns(
-        pl.col("payload").str.json_array_values().alias("values"),
+        json_array_values("payload").alias("values"),
     )
     print(result)
 
     # Nested arrays and objects become compact JSON strings.
     nested = pl.select(
-        pl.lit('[[1,2],{"enabled":false}]').str.json_array_values().alias("nested_values"),
+        json_array_values(pl.lit('[[1,2],{"enabled":false}]')).alias("nested_values"),
     )
     print(nested)
 

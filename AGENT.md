@@ -86,6 +86,9 @@ make package
 - Importing `polars_list_math` registers helpers on both `Expr.list` and
   `Expr.str`; non-namespace helpers such as `url_query_encode` and `url_build`
   are exported from the package root.
+- All expression helpers also have typed top-level exports. Treat these as the
+  static-analysis API because Pyright/Pylance cannot augment Polars' namespace
+  class declarations with runtime monkeypatches.
 - `pyright` is configured in basic mode.
 - `ruff` owns Python formatting and linting.
 - Run `cargo fmt --manifest-path rust/Cargo.toml` after editing Rust files.

@@ -1,7 +1,7 @@
 """Build pairs within a list and between two list columns."""
 
 import polars as pl
-import polars_list_math  # noqa: F401
+from polars_list_math import list_combinations, list_combinations_to
 
 
 def main() -> None:
@@ -14,22 +14,20 @@ def main() -> None:
     )
 
     result = frame.select(
-        pl.col("items")
-        .list.combinations(
+        list_combinations(
+            "items",
             skip_self=True,
             left_value="first",
             right_value="second",
             left_index="first_index",
             right_index="second_index",
-        )
-        .alias("item_pairs"),
-        pl.col("users")
-        .list.combinations_to(
+        ).alias("item_pairs"),
+        list_combinations_to(
+            "users",
             "products",
             left_value="user_id",
             right_value="product",
-        )
-        .alias("user_product_pairs"),
+        ).alias("user_product_pairs"),
     )
     print(result)
 

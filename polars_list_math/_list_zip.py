@@ -79,6 +79,10 @@ def zip_list(
     )
 
 
+# Public functional name matching the native expression and the other helpers.
+list_zip = zip_list
+
+
 def install(*, overwrite: bool = False) -> None:
     """Register the Polars list namespace helper."""
     list_namespace = type(pl.col("__polars_list_math_list_zip_probe__").list)

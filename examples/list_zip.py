@@ -1,7 +1,7 @@
 """Zip list columns into lists of structs."""
 
 import polars as pl
-import polars_list_math  # noqa: F401
+from polars_list_math import list_zip
 
 
 def main() -> None:
@@ -14,10 +14,10 @@ def main() -> None:
     )
 
     result = frame.select(
-        pl.col("product")
-        .list.zip("price", "currency", fields=["product", "price", "currency"])
-        .alias("offers"),
-        pl.col("product").list.zip("price", pad=True).alias("padded_offers"),
+        list_zip("product", "price", "currency", fields=["product", "price", "currency"]).alias(
+            "offers"
+        ),
+        list_zip("product", "price", pad=True).alias("padded_offers"),
     )
     print(result)
 

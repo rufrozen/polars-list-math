@@ -1,7 +1,7 @@
 """Calculate mean similarity for nested-list columns."""
 
 import polars as pl
-import polars_list_math  # noqa: F401
+from polars_list_math import list_mean_similarity, list_mean_similarity_to
 
 
 def main() -> None:
@@ -17,10 +17,8 @@ def main() -> None:
     )
 
     result = frame.select(
-        pl.col("recommendations").list.mean_similarity().alias("similarity_within_recommendations"),
-        pl.col("recommendations")
-        .list.mean_similarity_to("references")
-        .alias("similarity_to_references"),
+        list_mean_similarity("recommendations").alias("similarity_within_recommendations"),
+        list_mean_similarity_to("recommendations", "references").alias("similarity_to_references"),
     )
     print(result)
 

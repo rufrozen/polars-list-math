@@ -27,5 +27,6 @@ uv run python examples/json_object_items.py
 uv run python examples/url_build.py
 ```
 
-Imports of `polars_list_math` are intentional: importing the package registers
-the additional methods on `Expr.list` and `Expr.str`.
+The examples use the typed top-level expression functions so Pyright and
+Pylance can validate them. Importing `polars_list_math` also registers equivalent
+runtime shorthand methods on `Expr.list` and `Expr.str`.

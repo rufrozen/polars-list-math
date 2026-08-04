@@ -1,7 +1,7 @@
 """Convert JSON objects into lists of key/value structs."""
 
 import polars as pl
-import polars_list_math  # noqa: F401
+from polars_list_math import json_object_items
 
 
 def main() -> None:
@@ -16,13 +16,13 @@ def main() -> None:
     )
 
     result = frame.with_columns(
-        pl.col("payload").str.json_object_items().alias("items"),
+        json_object_items("payload").alias("items"),
     )
     print(result)
 
     # Invalid JSON raises instead of producing null in strict mode.
     valid = frame.head(1).select(
-        pl.col("payload").str.json_object_items(strict=True).alias("strict_items"),
+        json_object_items("payload", strict=True).alias("strict_items"),
     )
     print(valid)
 

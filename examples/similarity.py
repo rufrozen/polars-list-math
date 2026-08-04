@@ -1,8 +1,7 @@
 """Compare ordered lists with weighted Jaccard similarity."""
 
 import polars as pl
-import polars_list_math  # noqa: F401
-from polars_list_math import py_list_similarity
+from polars_list_math import list_similarity, py_list_similarity
 
 
 def main() -> None:
@@ -13,7 +12,7 @@ def main() -> None:
         }
     )
 
-    result = frame.with_columns(pl.col("expected").list.similarity("actual").alias("similarity"))
+    result = frame.with_columns(list_similarity("expected", "actual").alias("similarity"))
     print(result)
 
     score = py_list_similarity(
