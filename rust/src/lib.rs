@@ -5,6 +5,8 @@ mod list_mean_similarity;
 mod list_similarity;
 mod list_similarity_core;
 mod list_zip;
+mod url_build;
+mod url_query_encode;
 
 use pyo3::prelude::*;
 use pyo3_polars::PolarsAllocator;

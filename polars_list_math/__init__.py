@@ -13,12 +13,16 @@ from ._list_similarity import (
     py_list_similarity,
 )
 from ._list_zip import install as _install_list_zip
+from ._url_build import url_build
+from ._url_query_encode import url_query_encode
 
 __all__ = [
     "install",
     "json_array_values",
     "json_object_items",
     "py_list_similarity",
+    "url_build",
+    "url_query_encode",
 ]
 
 
