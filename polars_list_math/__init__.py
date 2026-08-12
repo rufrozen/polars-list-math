@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from ._expected_value_of_game import expected_value_of_game
 from ._json_array_values import install as _install_json_array_values
 from ._json_array_values import json_array_values
 from ._json_object_items import install as _install_json_object_items
@@ -22,6 +23,7 @@ from ._url_query_encode import url_query_encode
 
 __all__ = [
     "install",
+    "expected_value_of_game",
     "json_array_values",
     "json_object_items",
     "list_combinations",

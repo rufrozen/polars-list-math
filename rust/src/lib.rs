@@ -1,3 +1,4 @@
+mod expected_value_of_game;
 mod json_array_values;
 mod json_object_items;
 mod list_combinations;

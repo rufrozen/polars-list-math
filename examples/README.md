@@ -9,6 +9,8 @@ Each file is a standalone example of one part of `polars-list-math`:
   Python;
 - [`mean_similarity.py`](mean_similarity.py) compares lists inside nested-list
   columns.
+- [`expected_value_of_game.py`](expected_value_of_game.py) computes the expected
+  value of a sequential game;
 - [`json_object_items.py`](json_object_items.py) converts JSON objects into
   lists of key/value structs;
 - [`json_array_values.py`](json_array_values.py) converts JSON arrays into

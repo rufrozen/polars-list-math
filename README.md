@@ -43,6 +43,7 @@ Pylance, and other type checkers:
 | `list_zip(...)` | Zip lists into `list[struct]` | [Examples](https://github.com/rufrozen/polars-list-math/tree/main/examples) |
 | `list_combinations(...)` | Pair items in one list | [Combinations](https://github.com/rufrozen/polars-list-math/blob/main/docs/combinations.md) |
 | `list_combinations_to(...)` | Pair items from two lists | [Combinations](https://github.com/rufrozen/polars-list-math/blob/main/docs/combinations.md) |
+| `expected_value_of_game(...)` | Expected value of a sequential game | [Expected value of a game](https://github.com/rufrozen/polars-list-math/blob/main/docs/expected_value_of_game.md) |
 | `list_similarity(...)` | Weighted similarity between two lists | [Similarity](https://github.com/rufrozen/polars-list-math/blob/main/docs/similarity.md) |
 | `list_mean_similarity(...)` | Mean similarity inside nested lists | [Similarity](https://github.com/rufrozen/polars-list-math/blob/main/docs/similarity.md) |
 | `list_mean_similarity_to(...)` | Mean similarity to reference nested lists | [Similarity](https://github.com/rufrozen/polars-list-math/blob/main/docs/similarity.md) |

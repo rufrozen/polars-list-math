@@ -2,6 +2,7 @@
 
 import polars as pl
 from polars_list_math import (
+    expected_value_of_game,
     json_array_values,
     json_object_items,
     list_combinations,
@@ -20,6 +21,7 @@ nested = pl.col("nested")
 json = pl.col("json")
 
 expressions: list[pl.Expr] = [
+    expected_value_of_game(nested),
     json_object_items(json, strict=True),
     json_array_values(json),
     list_zip(items, other, fields=["item", "other"]),
