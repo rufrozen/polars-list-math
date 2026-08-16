@@ -55,6 +55,10 @@ Pylance, and other type checkers:
 The Python helper `py_list_similarity(...)` computes weighted similarity for
 plain Python sequences.
 
+Typed schemas and projections are available from
+`polars_list_math.typed_polars`; see the
+[typed Polars guide](https://github.com/rufrozen/polars-list-math/blob/main/docs/typed_polars.md).
+
 The `Expr.list` and `Expr.str` methods are registered dynamically and remain
 available as convenient runtime syntax. Python type checkers cannot safely
 augment Polars' own namespace classes from another installed package, so use

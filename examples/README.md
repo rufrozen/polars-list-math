@@ -19,6 +19,12 @@ Each file is a standalone example of one part of `polars-list-math`:
   expressions as query strings;
 - [`url_build.py`](url_build.py) assembles URLs from optional component
   expressions.
+- [`typed_polars.py`](typed_polars.py) declares a typed nested schema and builds
+  nested and flat DataFrames from it.
+- [`typed_polars_view.py`](typed_polars_view.py) selects typed projections from
+  nested and flat frames;
+- [`typed_polars_include.py`](typed_polars_include.py) derives a smaller schema
+  with `Include`, `IncludeStruct`, and `IncludeListStruct`.
 
 Install the project, then run an example from the repository root:
 
@@ -27,6 +33,9 @@ make develop
 uv run python examples/list_zip.py
 uv run python examples/json_object_items.py
 uv run python examples/url_build.py
+uv run python examples/typed_polars.py
+uv run python examples/typed_polars_view.py
+uv run python examples/typed_polars_include.py
 ```
 
 The examples use the typed top-level expression functions so Pyright and
