@@ -35,11 +35,8 @@ class ViewField[T]:
     def dtype(self) -> Any:
         return self.source.dtype
 
-    def nested_expr(self) -> pl.Expr:
-        return self.source.nested_expr().alias(self.alias)
-
-    def flat_expr(self) -> pl.Expr:
-        return self.source.flat_expr().alias(self.alias)
+    def expr(self) -> pl.Expr:
+        return self.source.expr().alias(self.alias)
 
     @overload
     def __get__(self, instance: None, owner: type[View] | None = None) -> Self: ...
@@ -116,7 +113,7 @@ class View(metaclass=ViewMeta):
 
     @classmethod
     def expressions(cls) -> tuple[pl.Expr, ...]:
-        return tuple(field.nested_expr() for field in cls.__view_fields__.values())
+        return tuple(field.expr() for field in cls.__view_fields__.values())
 
     @classmethod
     def select(cls, frame: pl.DataFrame | pl.LazyFrame) -> pl.DataFrame | pl.LazyFrame:
@@ -159,14 +156,11 @@ class View(metaclass=ViewMeta):
 
 def _safe_expression(field: ViewField[Any], schema: pl.Schema) -> pl.Expr:
     if _source_exists(field.source, schema):
-        return field.nested_expr()
-    if field.source.flat_name in schema:
-        return field.flat_expr()
+        return field.expr()
 
     dtype = field.source.dtype
-    for kind, _ in field.source._steps:
-        if kind == "list_item":
-            dtype = pl.List(dtype)
+    for _ in range(field.source._list_depth):
+        dtype = pl.List(dtype)
     return pl.repeat(None, pl.len(), dtype=dtype).alias(field.alias)
 
 

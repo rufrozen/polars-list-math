@@ -1,4 +1,4 @@
-"""Build nested and flat Polars frames from typed schemas."""
+"""Build a fixed hybrid Polars frame from a typed schema."""
 
 from datetime import datetime
 
@@ -17,7 +17,7 @@ class SearchResult(tp.Schema):
 
 class Event(tp.Schema):
     timestamp = tp.Field[tp.TimestampMs]()
-    result = tp.Struct[SearchResult](flat_alias="search")
+    result = tp.Struct[SearchResult](alias="search", flat=True)
 
 
 event = Event(
@@ -32,5 +32,4 @@ event = Event(
 )
 
 print(event.to_frame())
-print(event.to_flat_frame())
-print(Event.result.fields.suggestions.item.score.nested_expr())
+print(Event.result.fields.suggestions.item.score.expr())

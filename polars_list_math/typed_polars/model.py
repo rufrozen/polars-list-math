@@ -7,7 +7,7 @@ The same declaration provides:
 - lintable class-level Polars column references;
 - aliases for physical Polars names;
 - exact ``pl.Schema`` generation;
-- nested Struct/List[Struct] expressions;
+- fixed hybrid Struct/List[Struct] storage and expressions;
 - row <-> dict <-> DataFrame conversion.
 
 Example::
@@ -131,7 +131,7 @@ class Column[T]:
         steps: tuple[tuple[str, str], ...] = (),
         python_path: tuple[str, ...] = (),
         polars_path: tuple[str, ...] = (),
-        flat_path: tuple[str, ...] = (),
+        list_depth: int = 0,
         field_info: _FieldBase | None = None,
     ) -> None:
         self.name = name
@@ -141,18 +141,12 @@ class Column[T]:
         self._steps = steps
         self.python_path = python_path or (name,)
         self.polars_path = polars_path or (alias,)
-        self.flat_path = flat_path or (alias,)
+        self._list_depth = list_depth
         self._field_info = field_info
 
-    @property
-    def flat_name(self) -> str:
-        return ":".join(self.flat_path)
-
-    def nested_expr(self) -> pl.Expr:
+    def expr(self) -> pl.Expr:
+        """Return an expression for this field's fixed storage path."""
         return _build_expr(self.root_alias, self._steps)
-
-    def flat_expr(self) -> pl.Expr:
-        return pl.col(self.flat_name)
 
     def __str__(self) -> str:
         return self.alias
@@ -200,8 +194,10 @@ class StructColumn[S: Schema](Column[S]):
         # while runtime needs a path-bound proxy rather than the real class.
         return cast(type[S], self._fields_proxy)
 
-    def flat_expr(self) -> pl.Expr:
-        raise TypeError("Struct has no single column in flat representation")
+    def expr(self) -> pl.Expr:
+        if self._field_info is not None and cast(Struct[Any], self._field_info).flat:
+            raise TypeError("A flat Struct has no single physical column")
+        return super().expr()
 
 
 class ListStructColumn[S: Schema](Column[list[S]]):
@@ -215,8 +211,10 @@ class ListStructColumn[S: Schema](Column[list[S]]):
     def item(self) -> type[S]:
         return cast(type[S], self._item_proxy)
 
-    def flat_expr(self) -> pl.Expr:
-        raise TypeError("ListStruct has no single column in flat representation")
+    def expr(self) -> pl.Expr:
+        if self._field_info is not None and cast(ListStruct[Any], self._field_info).flat:
+            raise TypeError("A flat ListStruct has no single physical column")
+        return super().expr()
 
 
 # ---------------------------------------------------------------------------
@@ -230,7 +228,6 @@ class _FieldBase:
         default: Any = _MISSING,
         *,
         alias: str | None = None,
-        flat_alias: str | None = None,
         dtype: Any | None = None,
         default_factory: Callable[[], Any] | object = _MISSING,
         repr: bool = True,  # noqa: A002 - matches dataclasses/Pydantic terminology
@@ -239,7 +236,6 @@ class _FieldBase:
             raise TypeError("field cannot specify both default and default_factory")
 
         self.alias_override = alias
-        self.flat_alias = flat_alias
         self.dtype_override = dtype
         self.default = default
         self.default_factory = default_factory
@@ -350,6 +346,29 @@ class Field[T](_FieldBase):
 class Struct[S: Schema](_FieldBase):
     """Nested Schema stored as a Polars Struct."""
 
+    def __init__(
+        self,
+        default: Any = _MISSING,
+        *,
+        alias: str | None = None,
+        flat: bool = False,
+        flat_divider: str = ":",
+        default_factory: Callable[[], Any] | object = _MISSING,
+        repr: bool = True,  # noqa: A002 - matches dataclasses/Pydantic terminology
+    ) -> None:
+        if not isinstance(flat, bool):
+            raise TypeError("flat must be a bool")
+        if not isinstance(flat_divider, str) or not flat_divider:
+            raise TypeError("flat_divider must be a non-empty string")
+        super().__init__(
+            default,
+            alias=alias,
+            default_factory=default_factory,
+            repr=repr,
+        )
+        self.flat = flat
+        self.flat_divider = flat_divider
+
     @overload
     def __get__(self, instance: None, owner: type[Schema] | None = None) -> StructColumn[S]: ...
 
@@ -379,6 +398,29 @@ class Struct[S: Schema](_FieldBase):
 
 class ListStruct[S: Schema](_FieldBase):
     """List of nested Schema objects stored as Polars List[Struct]."""
+
+    def __init__(
+        self,
+        default: Any = _MISSING,
+        *,
+        alias: str | None = None,
+        flat: bool = False,
+        flat_divider: str = ":",
+        default_factory: Callable[[], Any] | object = _MISSING,
+        repr: bool = True,  # noqa: A002 - matches dataclasses/Pydantic terminology
+    ) -> None:
+        if not isinstance(flat, bool):
+            raise TypeError("flat must be a bool")
+        if not isinstance(flat_divider, str) or not flat_divider:
+            raise TypeError("flat_divider must be a non-empty string")
+        super().__init__(
+            default,
+            alias=alias,
+            default_factory=default_factory,
+            repr=repr,
+        )
+        self.flat = flat
+        self.flat_divider = flat_divider
 
     @overload
     def __get__(self, instance: None, owner: type[Schema] | None = None) -> ListStructColumn[S]: ...
@@ -430,11 +472,12 @@ class IncludeStruct[P: Schema](Struct[P]):
     def __init__(self, source: StructColumn[Any], schema: type[P]) -> None:
         if not isinstance(source, StructColumn):
             raise TypeError("IncludeStruct source must be a StructColumn")
-        info = _source_field_info(source)
+        info = cast(Struct[Any], _source_field_info(source))
         super().__init__(
             _copied_default(info),
             alias=source.alias,
-            flat_alias=info.flat_alias,
+            flat=info.flat,
+            flat_divider=info.flat_divider,
             default_factory=_copied_default_factory(info),
             repr=info.repr,
         )
@@ -447,11 +490,12 @@ class IncludeListStruct[P: Schema](ListStruct[P]):
     def __init__(self, source: ListStructColumn[Any], schema: type[P]) -> None:
         if not isinstance(source, ListStructColumn):
             raise TypeError("IncludeListStruct source must be a ListStructColumn")
-        info = _source_field_info(source)
+        info = cast(ListStruct[Any], _source_field_info(source))
         super().__init__(
             _copied_default(info),
             alias=source.alias,
-            flat_alias=info.flat_alias,
+            flat=info.flat,
+            flat_divider=info.flat_divider,
             default_factory=_copied_default_factory(info),
             repr=info.repr,
         )
@@ -616,10 +660,6 @@ class SchemaMeta(type):
 
         for attr_name, value in namespace.items():
             if isinstance(value, _FieldBase):
-                if value.flat_alias is not None and not isinstance(value, (Struct, ListStruct)):
-                    raise TypeError(
-                        f"{name}.{attr_name}: flat_alias is only supported by Struct and ListStruct"
-                    )
                 value._bind(cast("type[Schema]", cls))
                 fields[attr_name] = value
             elif isinstance(value, Extras):
@@ -663,7 +703,6 @@ class SchemaMeta(type):
                     steps=(),
                     python_path=(info.name,),
                     polars_path=(info.alias,),
-                    flat_path=(info.flat_alias or info.alias,),
                 )
             )
 
@@ -727,13 +766,15 @@ class Schema(metaclass=SchemaMeta):
 
     @classmethod
     def polars_schema(cls, extra_schema: Mapping[str, Any] | None = None) -> pl.Schema:
-        if cls.__polars_schema_cache__ is None:
-            cls.__polars_schema_cache__ = pl.Schema(
-                {info.alias: info.polars_dtype for info in cls.__schema_fields__.values()}
-            )
-        if not extra_schema:
+        from .frame import _resolved_schema, storage_schema
+
+        if not extra_schema and cls.__polars_schema_cache__ is not None:
             return cls.__polars_schema_cache__
-        return _apply_extra_schema(cls, extra_schema)
+        logical = _resolved_schema(cls, [], strict=True, extra_schema=extra_schema)
+        result = storage_schema(cls, logical)
+        if not extra_schema:
+            cls.__polars_schema_cache__ = result
+        return result
 
     def to_dict(self, *, by_alias: bool = False) -> dict[str, Any]:
         return self._to_dict_with_plan(by_alias=by_alias)
@@ -806,19 +847,6 @@ class Schema(metaclass=SchemaMeta):
             extra_schema=extra_schema,
         )
 
-    def to_flat_frame(
-        self,
-        *,
-        strict: bool = True,
-        extra_schema: Mapping[str, Any] | None = None,
-    ) -> pl.DataFrame:
-        """Serialize this row without Struct columns, using ``:`` paths."""
-        return type(self).to_flat_frame_many(
-            [self],
-            strict=strict,
-            extra_schema=extra_schema,
-        )
-
     @classmethod
     def to_frame_many(
         cls,
@@ -837,34 +865,6 @@ class Schema(metaclass=SchemaMeta):
         )
 
     @classmethod
-    def to_flat_frame_many(
-        cls,
-        rows: Iterable[Self],
-        *,
-        strict: bool = True,
-        extra_schema: Mapping[str, Any] | None = None,
-    ) -> pl.DataFrame:
-        """Serialize rows to scalar/list columns with colon-separated paths."""
-        from .frame import build_flat_frame
-
-        return build_flat_frame(
-            cls,
-            list(rows),
-            strict=strict,
-            extra_schema=extra_schema,
-        )
-
-    @classmethod
-    def flat_schema(
-        cls,
-        extra_schema: Mapping[str, Any] | None = None,
-    ) -> pl.Schema:
-        """Return the flat schema when all dynamic fields are explicit."""
-        from .frame import flatten_schema
-
-        return flatten_schema(cls, cls.polars_schema(extra_schema))
-
-    @classmethod
     def from_frame(
         cls,
         df: pl.DataFrame,
@@ -874,8 +874,9 @@ class Schema(metaclass=SchemaMeta):
     ) -> Self:
         if strict_schema:
             cls.assert_frame_schema(df)
-        row = df.row(index, named=True)
-        return cls.from_dict(row, by_alias=True, forbid_extra=False)
+        from .frame import deserialize_row
+
+        return cast(Self, deserialize_row(cls, df.row(index, named=True)))
 
     @classmethod
     def iter_frame(
@@ -886,8 +887,10 @@ class Schema(metaclass=SchemaMeta):
     ) -> Iterator[Self]:
         if strict_schema:
             cls.assert_frame_schema(df)
+        from .frame import deserialize_row
+
         for row in df.iter_rows(named=True):
-            yield cls.from_dict(row, by_alias=True, forbid_extra=False)
+            yield cast(Self, deserialize_row(cls, row))
 
     @classmethod
     def assert_frame_schema(cls, df: pl.DataFrame, *, allow_extra: bool = False) -> None:
@@ -928,40 +931,6 @@ class Schema(metaclass=SchemaMeta):
             and isinstance(other, Schema)
             and self.to_dict() == other.to_dict()
         )
-
-
-# ---------------------------------------------------------------------------
-# Type -> Polars dtype resolution
-# ---------------------------------------------------------------------------
-
-
-def _apply_extra_schema(schema_cls: type[Schema], extra_schema: Mapping[str, Any]) -> pl.Schema:
-    result = dict(schema_cls.polars_schema())
-    fields_by_alias = {info.alias: info for info in schema_cls.__schema_fields__.values()}
-
-    for name, dtype in extra_schema.items():
-        info = fields_by_alias.get(name)
-        if info is None:
-            if schema_cls.__extras_field__ is None:
-                raise TypeError(f"{schema_cls.__name__} does not declare Extras for {name!r}")
-            if isinstance(dtype, Mapping):
-                raise TypeError(f"Extra column {name!r} requires a Polars dtype")
-            result[name] = dtype
-            continue
-
-        if not isinstance(dtype, Mapping):
-            raise TypeError(f"Extra schema conflicts with declared field {name!r}")
-
-        if isinstance(info, Struct):
-            nested = _require_schema_type(info.python_type, info)
-            result[name] = pl.Struct(nested.polars_schema(dtype))
-        elif isinstance(info, ListStruct):
-            nested = _require_schema_type(info.python_type, info)
-            result[name] = pl.List(pl.Struct(nested.polars_schema(dtype)))
-        else:
-            raise TypeError(f"Declared field {name!r} cannot contain extra fields")
-
-    return pl.Schema(result)
 
 
 # ---------------------------------------------------------------------------
@@ -1050,6 +1019,9 @@ def _build_expr(root_alias: str, steps: tuple[tuple[str, str], ...]) -> pl.Expr:
             inner = apply(pl.element().struct.field(alias), tail)
             return expr.list.eval(inner)
 
+        if kind == "list":
+            return expr.list.eval(apply(pl.element(), tail))
+
         raise RuntimeError(f"Unknown column path step: {kind!r}")
 
     return apply(pl.col(root_alias), steps)
@@ -1062,7 +1034,8 @@ def _build_column(
     steps: tuple[tuple[str, str], ...],
     python_path: tuple[str, ...],
     polars_path: tuple[str, ...],
-    flat_path: tuple[str, ...],
+    list_depth: int = 0,
+    root_wrappers: int = 0,
 ) -> Column[Any]:
     kwargs = {
         "name": info.name,
@@ -1072,7 +1045,7 @@ def _build_column(
         "steps": steps,
         "python_path": python_path,
         "polars_path": polars_path,
-        "flat_path": flat_path,
+        "list_depth": list_depth,
         "field_info": info,
     }
 
@@ -1080,12 +1053,14 @@ def _build_column(
         nested_schema = _require_schema_type(info.python_type, info)
         children = _build_bound_children(
             nested_schema,
+            info=info,
             root_alias=root_alias,
             parent_steps=steps,
             edge_kind="struct",
             parent_python_path=python_path,
             parent_polars_path=polars_path,
-            parent_flat_path=flat_path,
+            list_depth=list_depth,
+            root_wrappers=root_wrappers,
         )
         return StructColumn(fields_proxy=_BoundColumnsProxy(children), **kwargs)
 
@@ -1093,12 +1068,14 @@ def _build_column(
         nested_schema = _require_schema_type(info.python_type, info)
         children = _build_bound_children(
             nested_schema,
+            info=info,
             root_alias=root_alias,
             parent_steps=steps,
             edge_kind="list_item",
             parent_python_path=python_path + ("item",),
             parent_polars_path=polars_path + ("[]",),
-            parent_flat_path=flat_path,
+            list_depth=list_depth,
+            root_wrappers=root_wrappers,
         )
         return ListStructColumn(item_proxy=_BoundColumnsProxy(children), **kwargs)
 
@@ -1118,28 +1095,47 @@ def _require_schema_type(value: Any, info: _FieldBase) -> type[Schema]:
 def _build_bound_children(
     schema_cls: type[Schema],
     *,
+    info: Struct[Any] | ListStruct[Any],
     root_alias: str,
     parent_steps: tuple[tuple[str, str], ...],
     edge_kind: str,
     parent_python_path: tuple[str, ...],
     parent_polars_path: tuple[str, ...],
-    parent_flat_path: tuple[str, ...],
+    list_depth: int,
+    root_wrappers: int,
 ) -> dict[str, Column[Any]]:
     result: dict[str, Column[Any]] = {}
 
     for child in schema_cls.__schema_fields__.values():
+        if info.flat:
+            if parent_steps:
+                kind, alias = parent_steps[-1]
+                child_root = root_alias
+                child_steps = (
+                    *parent_steps[:-1],
+                    (kind, f"{alias}{info.flat_divider}{child.alias}"),
+                )
+                child_root_wrappers = 0
+            else:
+                child_root = f"{root_alias}{info.flat_divider}{child.alias}"
+                child_steps = ()
+                child_root_wrappers = list_depth + isinstance(info, ListStruct)
+            child_list_depth = list_depth + isinstance(info, ListStruct)
+        else:
+            child_root = root_alias
+            child_steps = (
+                parent_steps + (("list", ""),) * root_wrappers + ((edge_kind, child.alias),)
+            )
+            child_list_depth = list_depth + (edge_kind == "list_item")
+            child_root_wrappers = 0
         result[child.name] = _build_column(
             child,
-            root_alias=root_alias,
-            steps=parent_steps + ((edge_kind, child.alias),),
+            root_alias=child_root,
+            steps=child_steps,
             python_path=parent_python_path + (child.name,),
             polars_path=parent_polars_path + (child.alias,),
-            flat_path=parent_flat_path
-            + (
-                child.flat_alias
-                if isinstance(child, (Struct, ListStruct)) and child.flat_alias
-                else child.alias,
-            ),
+            list_depth=child_list_depth,
+            root_wrappers=child_root_wrappers,
         )
 
     return result

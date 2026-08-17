@@ -12,12 +12,12 @@ class Item(tp.Schema):
 
 class Payload(tp.Schema):
     title = tp.Field[str]()
-    items = tp.ListStruct[Item](flat_alias="entries")
+    items = tp.ListStruct[Item](alias="entries", flat=True)
 
 
 class Row(tp.Schema):
     request_id = tp.Field[str](alias="requestId")
-    payload = tp.Struct[Payload](flat_alias="p")
+    payload = tp.Struct[Payload](alias="p", flat=True)
     ignored = tp.Field[bool]()
 
 
@@ -75,29 +75,15 @@ def test_select_preserves_lazy_execution(frame: pl.DataFrame) -> None:
     ]
 
 
-def test_select_automatically_supports_flat_dataframe_and_lazyframe(
-    frame: pl.DataFrame,
-) -> None:
-    rows = list(Row.iter_frame(frame))
-    flat = Row.to_flat_frame_many(rows)
-
-    assert flat.columns == [
+def test_schema_has_one_fixed_flat_representation(frame: pl.DataFrame) -> None:
+    assert frame.columns == [
         "requestId",
         "p:title",
         "p:entries:value",
         "p:entries:score",
         "ignored",
     ]
-    nested_selected = RowView.select(frame)
-    selected = RowView.select(flat)
-    lazy_selected = RowView.select(flat.lazy())
-
-    assert isinstance(nested_selected, pl.DataFrame)
-    expected = nested_selected.to_dict(as_series=False)
-    assert isinstance(selected, pl.DataFrame)
-    assert selected.to_dict(as_series=False) == expected
-    assert isinstance(lazy_selected, pl.LazyFrame)
-    assert lazy_selected.collect().to_dict(as_series=False) == expected
+    assert Row.from_frame(frame, strict_schema=True).request_id == "one"
 
 
 def test_from_frame_returns_typed_view_objects(frame: pl.DataFrame) -> None:
@@ -114,28 +100,18 @@ def test_from_frame_returns_typed_view_objects(frame: pl.DataFrame) -> None:
 
 def test_view_exposes_source_metadata() -> None:
     assert RowView.identifier.source is Row.request_id
-    assert RowView.values.source.polars_path == ("payload", "items", "[]", "value")
-    assert RowView.values.source.flat_path == ("p", "entries", "value")
-    assert RowView.values.source.flat_name == "p:entries:value"
+    assert RowView.values.source.polars_path == ("p", "entries", "[]", "value")
+    assert RowView.values.source.root_alias == "p:entries:value"
     assert tuple(RowView.model_fields()) == ("identifier", "title", "values", "scores")
 
 
-def test_columns_expose_explicit_nested_and_flat_expressions(
-    frame: pl.DataFrame,
-) -> None:
-    rows = list(Row.iter_frame(frame))
-    flat = Row.to_flat_frame_many(rows)
+def test_columns_expose_one_expression_for_fixed_storage(frame: pl.DataFrame) -> None:
     source = Row.payload.fields.items.item.value
 
-    assert frame.select(source.nested_expr()).to_series().to_list() == [
+    assert frame.select(source.expr()).to_series().to_list() == [
         ["a", "b"],
         [],
     ]
-    assert flat.select(source.flat_expr()).to_series().to_list() == [
-        ["a", "b"],
-        [],
-    ]
-    assert not hasattr(source, "expr")
     with pytest.raises(TypeError, match="not callable"):
         source()  # type: ignore[operator]
 
@@ -154,11 +130,11 @@ def test_missing_nested_fields_become_typed_null_columns() -> None:
     frame = pl.DataFrame(
         {
             "requestId": ["one", "two"],
-            "payload": [{"title": "First"}, {"title": "Second"}],
+            "p:title": ["First", "Second"],
         },
         schema={
             "requestId": pl.String,
-            "payload": pl.Struct({"title": pl.String}),
+            "p:title": pl.String,
         },
     )
 
@@ -176,7 +152,9 @@ def test_missing_nested_fields_become_typed_null_columns() -> None:
 
 
 def test_missing_columns_are_supported_for_lazy_frames(frame: pl.DataFrame) -> None:
-    selected = RowView.select(frame.drop("requestId", "payload").lazy())
+    selected = RowView.select(
+        frame.drop("requestId", "p:title", "p:entries:value", "p:entries:score").lazy()
+    )
 
     assert isinstance(selected, pl.LazyFrame)
     assert selected.collect().height == frame.height

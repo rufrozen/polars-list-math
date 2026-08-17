@@ -19,10 +19,10 @@ Each file is a standalone example of one part of `polars-list-math`:
   expressions as query strings;
 - [`url_build.py`](url_build.py) assembles URLs from optional component
   expressions.
-- [`typed_polars.py`](typed_polars.py) declares a typed nested schema and builds
-  nested and flat DataFrames from it.
+- [`typed_polars.py`](typed_polars.py) declares a typed hybrid schema and builds
+  its fixed DataFrame representation.
 - [`typed_polars_view.py`](typed_polars_view.py) selects typed projections from
-  nested and flat frames;
+  a schema's fixed storage layout;
 - [`typed_polars_include.py`](typed_polars_include.py) derives a smaller schema
   with `Include`, `IncludeStruct`, and `IncludeListStruct`.
 

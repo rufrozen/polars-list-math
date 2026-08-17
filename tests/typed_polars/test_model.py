@@ -106,34 +106,31 @@ def test_round_trips_one_or_many_rows_through_dataframe() -> None:
     assert list(Row.iter_frame(frame, strict_schema=True)) == [first, second]
 
 
-def test_flat_frame_expands_structs_and_list_structs_to_colon_columns() -> None:
-    frame = make_row().to_flat_frame()
+def test_flat_structs_are_part_of_the_fixed_schema() -> None:
+    class FlatRow(tp.Schema):
+        completion = tp.Struct[Completion](alias="completionData", flat=True)
 
-    assert Row.flat_schema() == frame.schema
+    frame = FlatRow(completion=make_row().completion).to_frame()
+
+    assert FlatRow.schema == frame.schema
     assert frame.schema == pl.Schema(
         {
-            "requestId": pl.String,
-            "position": pl.Int32,
-            "score": pl.Float32,
             "completionData:queryPrefix": pl.String,
-            "completionData:suggestions:value": pl.List(pl.String),
-            "completionData:suggestions:correctedQuery": pl.List(pl.String),
-            "tags": pl.List(pl.String),
-            "created_at": pl.Datetime("ms"),
-            "elapsed": pl.Duration("ms"),
+            "completionData:suggestions": pl.List(
+                pl.Struct({"value": pl.String, "correctedQuery": pl.String})
+            ),
         }
     )
     assert frame.to_dict(as_series=False) == {
-        "requestId": ["request-1"],
-        "position": [7],
-        "score": [None],
         "completionData:queryPrefix": ["по"],
-        "completionData:suggestions:value": [["поле", "полёт"]],
-        "completionData:suggestions:correctedQuery": [["поле", "полет"]],
-        "tags": [[]],
-        "created_at": [datetime(2025, 1, 2, 3, 4, 5, 678000)],  # noqa: DTZ001
-        "elapsed": [timedelta(milliseconds=12)],
+        "completionData:suggestions": [
+            [
+                {"value": "поле", "correctedQuery": "поле"},
+                {"value": "полёт", "correctedQuery": "полет"},
+            ]
+        ],
     }
+    assert FlatRow.from_frame(frame, strict_schema=True).completion.prefix == "по"
 
 
 def test_flat_frame_preserves_nested_list_struct_boundaries() -> None:
@@ -141,41 +138,56 @@ def test_flat_frame_preserves_nested_list_struct_boundaries() -> None:
         value = tp.Field[int]()
 
     class Parent(tp.Schema):
-        children = tp.ListStruct[Child](alias="childData", flat_alias="kids")
+        children = tp.ListStruct[Child](alias="kids", flat=True, flat_divider="/")
 
     class NestedRow(tp.Schema):
-        parents = tp.ListStruct[Parent](alias="parentData", flat_alias="parents")
+        parents = tp.ListStruct[Parent](alias="parents", flat=True)
 
     frame = NestedRow(
         parents=[
             Parent(children=[Child(value=1), Child(value=2)]),
             Parent(children=[Child(value=3)]),
         ]
-    ).to_flat_frame()
+    ).to_frame()
 
-    assert frame.schema == pl.Schema({"parents:kids:value": pl.List(pl.List(pl.Int64))})
-    assert frame["parents:kids:value"].to_list() == [[[1, 2], [3]]]
-    assert NestedRow.schema == pl.Schema(
-        {"parentData": pl.List(pl.Struct({"childData": pl.List(pl.Struct({"value": pl.Int64}))}))}
-    )
+    assert frame.schema == pl.Schema({"parents:kids/value": pl.List(pl.List(pl.Int64))})
+    assert frame["parents:kids/value"].to_list() == [[[1, 2], [3]]]
+    assert NestedRow.from_frame(frame).parents[1].children[0].value == 3
 
 
-def test_struct_flat_alias_only_changes_flat_namespace() -> None:
+def test_struct_alias_and_custom_divider_define_flat_namespace() -> None:
     class Payload(tp.Schema):
         title = tp.Field[str](alias="itemTitle")
 
     class AliasedRow(tp.Schema):
-        payload = tp.Struct[Payload](alias="payloadData", flat_alias="p")
+        payload = tp.Struct[Payload](alias="p", flat=True, flat_divider=".")
 
     row = AliasedRow(payload=Payload(title="result"))
 
-    assert AliasedRow.schema == pl.Schema({"payloadData": pl.Struct({"itemTitle": pl.String})})
-    assert row.to_flat_frame().to_dict(as_series=False) == {"p:itemTitle": ["result"]}
+    assert AliasedRow.schema == pl.Schema({"p.itemTitle": pl.String})
+    assert row.to_frame().to_dict(as_series=False) == {"p.itemTitle": ["result"]}
 
-    with pytest.raises(TypeError, match="flat_alias.*Struct"):
+    with pytest.raises(TypeError, match="non-empty"):
+        tp.Struct[Payload](flat=True, flat_divider="")
 
-        class InvalidFlatAlias(tp.Schema):
-            value = tp.Field[str](flat_alias="v")
+
+def test_hybrid_paths_work_across_flat_and_nested_boundaries() -> None:
+    class Details(tp.Schema):
+        code = tp.Field[int]()
+
+    class Item(tp.Schema):
+        details = tp.Struct[Details]()
+
+    class HybridRow(tp.Schema):
+        items = tp.ListStruct[Item](flat=True, flat_divider=".")
+
+    frame = HybridRow(items=[Item(details=Details(code=7))]).to_frame()
+
+    assert frame.schema == pl.Schema({"items.details": pl.List(pl.Struct({"code": pl.Int64}))})
+    assert frame.select(HybridRow.items.item.details.fields.code.expr()).to_series().to_list() == [
+        [7]
+    ]
+    assert HybridRow.from_frame(frame).items[0].details.code == 7
 
 
 def test_builds_empty_typed_frame_from_one_shot_iterable() -> None:
@@ -225,7 +237,7 @@ def test_nested_columns_build_paths_and_work_in_select() -> None:
     assert prefix.polars_path == ("completionData", "queryPrefix")
     assert values.python_path == ("completion", "suggestions", "item", "value")
     assert values.polars_path == ("completionData", "suggestions", "[]", "value")
-    assert frame.select(prefix.nested_expr(), values.nested_expr()).to_dict(as_series=False) == {
+    assert frame.select(prefix.expr(), values.expr()).to_dict(as_series=False) == {
         "queryPrefix": ["по"],
         "suggestions": [["поле", "полёт"]],
     }
@@ -404,24 +416,6 @@ def test_list_struct_extras_are_resolved_across_all_items() -> None:
         {"items": [{"value": "b", "rank": None, "source": "web"}]},
     ]
 
-    flat = ItemRow.to_flat_frame_many(
-        [
-            ItemRow(items=[Item(value="a", extras={"rank": 1})]),
-            ItemRow(items=[Item(value="b", extras={"source": "web"})]),
-        ]
-    )
-    assert flat.schema == pl.Schema(
-        {
-            "items:value": pl.List(pl.String),
-            "items:rank": pl.List(pl.Int64),
-            "items:source": pl.List(pl.String),
-        }
-    )
-    assert flat.to_dicts() == [
-        {"items:value": ["a"], "items:rank": [1], "items:source": [None]},
-        {"items:value": ["b"], "items:rank": [None], "items:source": ["web"]},
-    ]
-
 
 def test_extras_reject_conflicts_and_invalid_declarations() -> None:
     row = FlexibleRow(
@@ -560,15 +554,6 @@ def test_dict_fields_round_trip_through_dict_and_dataframe() -> None:
     }
     assert DictionaryRow.from_dict(serialized, by_alias=True) == row
     assert DictionaryRow.from_frame(row.to_frame(), strict_schema=True) == row
-
-    flat = row.to_flat_frame()
-    assert flat.to_dict(as_series=False) == {
-        "counters:key": [["seen", "clicked"]],
-        "counters:value": [[3, 1]],
-        "suggestions:key": [["first"]],
-        "suggestions:value:value": [["поле"]],
-        "suggestions:value:correctedQuery": [["поле"]],
-    }
 
 
 def test_from_dict_accepts_python_mapping_for_dict_field() -> None:
