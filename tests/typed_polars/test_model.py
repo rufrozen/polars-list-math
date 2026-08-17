@@ -106,6 +106,38 @@ def test_round_trips_one_or_many_rows_through_dataframe() -> None:
     assert list(Row.iter_frame(frame, strict_schema=True)) == [first, second]
 
 
+def test_to_frame_rejects_null_for_non_nullable_field_in_strict_mode() -> None:
+    class StrictRow(tp.Schema):
+        value = tp.Field[str]()
+
+    with pytest.raises(TypeError, match=r"Field 'value' does not accept None"):
+        StrictRow(value=None).to_frame()  # type: ignore[arg-type]
+
+
+def test_to_frame_uses_declared_default_for_null_in_non_strict_mode() -> None:
+    class DefaultRow(tp.Schema):
+        value = tp.Field[str](default="fallback")
+
+    frame = DefaultRow(value=None).to_frame(strict=False)  # type: ignore[arg-type]
+
+    assert frame.to_dict(as_series=False) == {"value": ["fallback"]}
+
+
+def test_to_frame_keeps_explicitly_nullable_field_null() -> None:
+    class NullableRow(tp.Schema):
+        value = tp.Field[str | None](default=None)
+
+    assert NullableRow().to_frame().to_dict(as_series=False) == {"value": [None]}
+
+
+def test_non_strict_null_without_default_is_rejected() -> None:
+    class RequiredRow(tp.Schema):
+        value = tp.Field[str]()
+
+    with pytest.raises(TypeError, match=r"Field 'value'.*has no default"):
+        RequiredRow(value=None).to_frame(strict=False)  # type: ignore[arg-type]
+
+
 def test_flat_structs_are_part_of_the_fixed_schema() -> None:
     class FlatRow(tp.Schema):
         completion = tp.Struct[Completion](alias="completionData", flat=True)

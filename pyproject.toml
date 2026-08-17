@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "polars-list-math"
-version = "0.4.1"
+version = "0.4.2"
 description = "List-oriented math and expression helpers for Polars."
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.12"

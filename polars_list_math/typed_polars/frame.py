@@ -7,6 +7,7 @@ from typing import Any, cast
 
 import polars as pl
 
+from .dtypes import is_nullable
 from .model import ListStruct, Schema, Struct, _require_schema_type, _serialize_value
 
 
@@ -21,7 +22,7 @@ def build_frame(
     schema = storage_schema(schema_cls, logical)
     buffers = {name: [] for name in schema}
     for row in rows:
-        values = _storage_mapping(schema_cls, row, logical)
+        values = _storage_mapping(schema_cls, row, logical, strict=strict)
         for name, buffer in buffers.items():
             buffer.append(values.get(name))
     return pl.DataFrame(
@@ -87,12 +88,28 @@ def _put_schema(result: dict[str, Any], name: str, dtype: Any) -> None:
 
 
 def _storage_mapping(
-    schema_cls: type[Schema], row: Schema, logical_schema: Mapping[str, Any]
+    schema_cls: type[Schema],
+    row: Schema,
+    logical_schema: Mapping[str, Any],
+    *,
+    strict: bool,
+    path: str = "",
 ) -> dict[str, Any]:
     result: dict[str, Any] = {}
     declared: set[str] = set()
     for plan in schema_cls.__field_plan__:
         info, value, dtype = plan.info, row._values[plan.index], logical_schema[plan.alias]
+        field_path = f"{path}.{plan.name}" if path else plan.name
+        if value is None and not is_nullable(info.storage_type):
+            if strict:
+                raise TypeError(
+                    f"Field {field_path!r} does not accept None; declare its type with | None"
+                )
+            if info.required:
+                raise TypeError(f"Field {field_path!r} does not accept None and has no default")
+            value = info.get_default()
+            if value is None:
+                raise TypeError(f"Default for non-nullable field {field_path!r} must not be None")
         declared.add(plan.alias)
         if isinstance(info, Struct):
             nested_cls = _require_schema_type(info.python_type, info)
@@ -100,7 +117,9 @@ def _storage_mapping(
             nested_values = (
                 {name: None for name in storage_schema(nested_cls, nested_schema)}
                 if value is None
-                else _storage_mapping(nested_cls, value, nested_schema)
+                else _storage_mapping(
+                    nested_cls, value, nested_schema, strict=strict, path=field_path
+                )
             )
             if info.flat:
                 result.update(
@@ -121,7 +140,16 @@ def _storage_mapping(
                         {f"{plan.alias}{info.flat_divider}{name}": None for name in names}
                     )
                 else:
-                    items = [_storage_mapping(nested_cls, item, nested_schema) for item in value]
+                    items = [
+                        _storage_mapping(
+                            nested_cls,
+                            item,
+                            nested_schema,
+                            strict=strict,
+                            path=f"{field_path}[{index}]",
+                        )
+                        for index, item in enumerate(value)
+                    ]
                     result.update(
                         {
                             f"{plan.alias}{info.flat_divider}{name}": [
@@ -134,7 +162,16 @@ def _storage_mapping(
                 result[plan.alias] = (
                     None
                     if value is None
-                    else [_storage_mapping(nested_cls, item, nested_schema) for item in value]
+                    else [
+                        _storage_mapping(
+                            nested_cls,
+                            item,
+                            nested_schema,
+                            strict=strict,
+                            path=f"{field_path}[{index}]",
+                        )
+                        for index, item in enumerate(value)
+                    ]
                 )
         else:
             result[plan.alias] = plan.serialize_alias(value)

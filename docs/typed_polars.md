@@ -74,6 +74,11 @@ assert frame.schema == Row.schema
 restored = Row.from_frame(frame, strict_schema=True)
 ```
 
+`to_frame(strict=True)` rejects `None` for fields whose annotation does not
+include `| None`. With `strict=False`, such a value is replaced by the field's
+declared `default` or `default_factory`. A non-nullable field without a default
+still raises because there is no safe replacement value.
+
 Use `to_dict()` and `from_dict()` for the logical Python representation.
 `by_alias=True` switches dictionary keys to Polars aliases. Unlike DataFrame
 storage, dictionaries keep nested model structure and do not flatten fields.

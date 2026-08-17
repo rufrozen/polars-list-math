@@ -106,6 +106,14 @@ def base_annotation(annotation: Any) -> Any:
     return annotation
 
 
+def is_nullable(annotation: Any) -> bool:
+    """Return whether an annotation explicitly accepts ``None``."""
+    annotation, _ = _strip_annotated(annotation)
+    annotation = _unwrap_type_alias(annotation)
+    origin = get_origin(annotation)
+    return origin in (Union, UnionType) and type(None) in get_args(annotation)
+
+
 def _is_polars_dtype(value: Any) -> bool:
     try:
         if isinstance(value, pl.DataType):
