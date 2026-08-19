@@ -80,44 +80,6 @@ def extras(*, default_factory: Callable[[], Extras] = dict) -> Extras:
 
 
 @dataclass(frozen=True, slots=True)
-class Column[T]:
-    """Typed Polars column path exposed through ``Model.columns``."""
-
-    name: str
-    alias: str
-    dtype: Any
-    root_alias: str
-    steps: tuple[tuple[str, str], ...] = ()
-
-    def expr(self) -> pl.Expr:
-        return _apply_column_steps(pl.col(self.root_alias), self.steps)
-
-
-class _Columns:
-    def __init__(self, values: Mapping[str, Any]) -> None:
-        self._values = dict(values)
-
-    def __getattr__(self, name: str) -> Any:
-        try:
-            return self._values[name]
-        except KeyError:
-            raise AttributeError(name) from None
-
-    def __getitem__(self, name: str) -> Any:
-        return self._values[name]
-
-
-@dataclass(frozen=True, slots=True)
-class StructColumn[T](Column[T]):
-    fields: Any = None
-
-
-@dataclass(frozen=True, slots=True)
-class ListStructColumn[T](Column[list[T]]):
-    item: Any = None
-
-
-@dataclass(frozen=True, slots=True)
 class _FieldPlan:
     name: str
     alias: str
@@ -163,7 +125,6 @@ class Model:
     __slots__ = ()
 
     __tp2_plan__: ClassVar[_ModelPlan]
-    columns: ClassVar[Any]
 
     @classmethod
     def polars_schema(cls) -> pl.Schema:
@@ -334,7 +295,6 @@ def model[T: type[Model]](cls: T) -> T:
             )
         )
     type.__setattr__(cls, "__tp2_plan__", _ModelPlan(cls, tuple(plans), extras_name))
-    type.__setattr__(cls, "columns", _build_columns(cls))
     return cls
 
 
@@ -477,75 +437,6 @@ def _flat_getter(item: _FieldPlan, plan: _PhysicalPlan, index: int) -> Callable[
     return get
 
 
-def _build_columns(
-    cls: type[Model],
-    root: str | None = None,
-    steps: tuple[tuple[str, str], ...] = (),
-    container_kind: str = "struct",
-) -> _Columns:
-    values: dict[str, Any] = {}
-    for item in cls.__tp2_plan__.fields:
-        root_alias = root or item.alias
-        item_steps = steps + ((container_kind, item.alias),) if root is not None else ()
-        if item.kind == "struct" and not item.flat:
-            nested = _build_columns(
-                cast(type[Model], item.nested), root_alias, item_steps, "struct"
-            )
-            values[item.name] = StructColumn(
-                item.name, item.alias, None, root_alias, item_steps, nested
-            )
-        elif item.kind == "list_struct" and not item.flat:
-            nested = _build_columns(
-                cast(type[Model], item.nested), root_alias, item_steps, "list_struct"
-            )
-            values[item.name] = ListStructColumn(
-                item.name, item.alias, None, root_alias, item_steps, nested
-            )
-        elif item.flat:
-            nested = _build_flat_columns(
-                cast(type[Model], item.nested),
-                prefix=item.alias,
-                divider=item.flat_divider,
-                as_list=item.kind == "list_struct",
-            )
-            if item.kind == "struct":
-                values[item.name] = StructColumn(
-                    item.name, item.alias, None, item.alias, (), nested
-                )
-            else:
-                values[item.name] = ListStructColumn(
-                    item.name, item.alias, None, item.alias, (), nested
-                )
-        else:
-            values[item.name] = Column(item.name, item.alias, item.dtype, root_alias, item_steps)
-    return _Columns(values)
-
-
-def _build_flat_columns(cls: type[Model], *, prefix: str, divider: str, as_list: bool) -> _Columns:
-    values: dict[str, Any] = {}
-    for item in cls.__tp2_plan__.fields:
-        physical_name = f"{prefix}{divider}{item.alias}"
-        if item.kind == "struct" and not item.flat:
-            nested = _build_columns(cast(type[Model], item.nested), physical_name)
-            values[item.name] = StructColumn(item.name, item.alias, None, physical_name, (), nested)
-        elif item.kind == "list_struct" and not item.flat:
-            nested = _build_columns(cast(type[Model], item.nested), physical_name)
-            values[item.name] = ListStructColumn(
-                item.name, item.alias, None, physical_name, (), nested
-            )
-        elif item.flat:
-            values[item.name] = _build_flat_columns(
-                cast(type[Model], item.nested),
-                prefix=physical_name,
-                divider=item.flat_divider,
-                as_list=as_list or item.kind == "list_struct",
-            )
-        else:
-            dtype = pl.List(item.dtype) if as_list else item.dtype
-            values[item.name] = Column(item.name, item.alias, dtype, physical_name, ())
-    return _Columns(values)
-
-
 def _unflatten(cls: type[Model], data: Mapping[str, Any]) -> dict[str, Any]:
     result = dict(data)
     for item in cls.__tp2_plan__.fields:
@@ -595,18 +486,6 @@ def _validate_alias(alias: str) -> None:
 def _require_model(cls: type[Model]) -> None:
     if not hasattr(cls, "__tp2_plan__"):
         raise TypeError(f"Nested model {cls.__name__} must be decorated with @model")
-
-
-def _apply_column_steps(expr: pl.Expr, steps: tuple[tuple[str, str], ...]) -> pl.Expr:
-    if not steps:
-        return expr
-    (kind, name), remaining = steps[0], steps[1:]
-    if kind == "struct":
-        return _apply_column_steps(expr.struct.field(name), remaining)
-    if kind == "list_struct":
-        nested = _apply_column_steps(pl.element().struct.field(name), remaining)
-        return expr.list.eval(nested)
-    raise RuntimeError(f"Unknown column path step: {kind}")
 
 
 def _model_has_extras(cls: type[Model]) -> bool:

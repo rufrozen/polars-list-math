@@ -171,15 +171,6 @@ def test_dict_is_stored_as_list_of_key_value_structs() -> None:
     assert DictRow.from_frame(frame) == row
 
 
-def test_columns_build_nested_expressions() -> None:
-    frame = make_row().to_frame()
-
-    assert frame.select(Row.columns.completion.fields.prefix.expr()).item() == "по"
-    assert frame.select(Row.columns.completion.fields.suggestions.item.value.expr()).to_dict(
-        as_series=False
-    ) == {"suggestions": [["поле", "полёт"]]}
-
-
 @pytest.mark.parametrize("alias", ("bad-name", "with.dot", "class", "_private"))
 def test_rejects_aliases_that_namedtuple_cannot_represent(alias: str) -> None:
     with pytest.raises(TypeError, match="cannot be represented by NamedTuple"):

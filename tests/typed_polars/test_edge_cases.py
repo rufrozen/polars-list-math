@@ -310,44 +310,6 @@ def test_single_model_inheritance_adds_slots_fields() -> None:
     assert Derived.from_frame(row.to_frame()) == row
 
 
-def test_column_expression_crosses_list_struct_then_struct() -> None:
-    @tp.model
-    class Details(tp.Model):
-        code: int
-
-    @tp.model
-    class Item(tp.Model):
-        details: Details
-
-    @tp.model
-    class Row(tp.Model):
-        items: list[Item]
-
-    frame = Row([Item(Details(7)), Item(Details(8))]).to_frame()
-    column = Row.columns.items.item.details.fields.code
-
-    assert frame.select(column.expr()).to_dict(as_series=False) == {"items": [[7, 8]]}
-
-
-def test_flat_column_expressions_use_physical_columns() -> None:
-    @tp.model
-    class Pair(tp.Model):
-        name: str
-        value: int
-
-    @tp.model
-    class Row(tp.Model):
-        pair: Pair = tp.field(flat=True, flat_divider="__")
-        pairs: list[Pair] = tp.field(flat=True, flat_divider="__")
-
-    frame = Row(Pair("one", 1), [Pair("two", 2)]).to_frame()
-
-    assert frame.select(Row.columns.pair.fields.value.expr()).item() == 1
-    assert frame.select(Row.columns.pairs.item.name.expr()).to_dict(as_series=False) == {
-        "pairs__name": [["two"]]
-    }
-
-
 def test_wrong_nested_runtime_values_raise_contextual_type_errors() -> None:
     with pytest.raises(TypeError, match="expected Child, got dict"):
         NullableRow({"value": 1}, []).to_frame()  # type: ignore[arg-type]
@@ -374,6 +336,17 @@ def test_default_factories_create_independent_values() -> None:
     first.values.append(1)
 
     assert second.values == []
+
+
+def test_columns_is_available_as_a_regular_model_field() -> None:
+    @tp.model
+    class Row(tp.Model):
+        columns: list[str]
+
+    row = Row(columns=["first", "second"])
+
+    assert row.columns == ["first", "second"]
+    assert Row.from_frame(row.to_frame()) == row
 
 
 def test_extras_infer_nullable_and_all_null_dtypes() -> None:

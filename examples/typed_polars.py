@@ -2,6 +2,7 @@
 
 from datetime import datetime
 
+import polars as pl
 import polars_list_math.typed_polars as tp
 
 
@@ -68,9 +69,9 @@ assert frame["search"].struct.field("weights").to_list()[0] == [
     {"key": "python", "value": 0.5},
 ]
 
-# Class-level columns are separate from dataclass instance attributes.
-scores = Event.columns.search.fields.suggestions.item.score
-print(frame.select(scores.expr()))
+# Nested expressions use the regular, fully typed Polars API.
+scores = pl.col("search").struct.field("suggestions").list.eval(pl.element().struct.field("score"))
+print(frame.select(scores))
 
 # Polars Struct values are converted back into the public slots dataclasses.
 restored = list(Event.iter_frame(frame))

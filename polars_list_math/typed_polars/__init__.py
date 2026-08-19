@@ -18,7 +18,7 @@ from .dtypes import (
     TimestampNs,
     TimestampUs,
 )
-from .model import Column, Extras, ListStructColumn, Model, StructColumn, extras, field, model
+from .model import Extras, Model, extras, field, model
 
 __all__ = [
     "F32",
@@ -31,14 +31,11 @@ __all__ = [
     "U16",
     "U32",
     "U64",
-    "Column",
     "DurationMs",
     "DurationNs",
     "DurationUs",
     "Extras",
-    "ListStructColumn",
     "Model",
-    "StructColumn",
     "TimestampMs",
     "TimestampNs",
     "TimestampUs",

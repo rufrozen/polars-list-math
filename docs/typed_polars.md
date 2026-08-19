@@ -64,8 +64,9 @@ class Result(tp.Model):
 
 This produces `metrics__views`, `metrics__score`, `history__views`, and
 `history__score`. Flat ListStruct fields are parallel list columns. Both forms
-round-trip through `from_frame()` and support column expressions through
-`Result.columns.metrics.fields.views` and `Result.columns.history.item.score`.
+round-trip through `from_frame()`. Expressions use the regular Polars API, for
+example `pl.col("metrics__views")` for a flat field or
+`pl.col("nested").struct.field("value")` for a Struct field.
 
 Typed dictionaries use `List[Struct[key, value]]` as their physical storage:
 
