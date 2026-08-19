@@ -1,116 +1,104 @@
-# Typed Polars schemas
+# Typed Polars models
 
-`polars_list_math.typed_polars` declares typed row models, their fixed Polars
-storage schema, and typed expressions for projections.
+`polars_list_math.typed_polars` builds typed Polars DataFrames from standard
+slots dataclasses. Top-level rows are converted to tuples, while nested models
+are converted to generated `NamedTuple` values for efficient Struct input.
 
 ```python
 import polars_list_math.typed_polars as tp
 
-class Item(tp.Schema):
-    value = tp.Field[str]()
-    score = tp.Field[tp.F32]()
 
-class Payload(tp.Schema):
-    title = tp.Field[str]()
-    items = tp.ListStruct[Item](flat=True)
+@tp.model
+class Item(tp.Model):
+    value: str
+    score: tp.F32
 
-class Row(tp.Schema):
-    request_id = tp.Field[str](alias="requestId")
-    payload = tp.Struct[Payload](flat=False)
+
+@tp.model
+class Row(tp.Model):
+    request_id: str = tp.field(polars_name="requestId")
+    items: list[Item] = tp.field(default_factory=list)
+
+
+rows = [Row(request_id="one", items=[Item("polars", 0.5)])]
+frame = Row.to_frame_many(rows)
+restored = list(Row.iter_frame(frame))
 ```
 
-Fields are descriptors: `row.request_id` is a `str`, while
-`Row.request_id` is a typed `Column[str]`. Nested references remain typed:
+The `@tp.model` decorator applies `dataclass(slots=True)` automatically. An
+explicit slots dataclass is also accepted when options such as `frozen=True`
+or `kw_only=True` are needed.
+
+## Names and dtypes
+
+Use `polars_name=` for the physical Polars field name:
 
 ```python
-Row.payload.fields.title.expr()
-Row.payload.fields.items.item.score.expr()
+request_id: str = tp.field(polars_name="requestId")
 ```
 
-## One fixed, hybrid representation
+All physical names must be valid non-keyword Python identifiers and cannot
+start with `_`, because nested Struct values use `NamedTuple` fields. Explicit
+dtype aliases include `I8` through `I64`, unsigned integers, `F32`, `F64`,
+timestamps, and durations. Unknown annotations fail immediately while the
+model's module is imported; `tp.field(dtype=...)` can provide an intentional
+storage dtype for an otherwise unsupported Python type.
 
-Every `Struct` and `ListStruct` explicitly chooses its physical storage:
+## Nested and flat storage
 
-- `flat=False` (the default) stores a Polars `Struct` or `List(Struct)` column;
-- `flat=True` expands that node into separate columns;
-- `flat_divider=":"` controls the separator at that particular boundary.
-
-The choice is local, so nested declarations form a hybrid schema:
+Nested model annotations produce Struct values, and lists of models produce
+ListStruct values. Use `flat=True` to expand either form into physical columns:
 
 ```python
-class Details(tp.Schema):
-    source = tp.Field[str]()
+@tp.model
+class Metrics(tp.Model):
+    views: int
+    score: tp.F32
 
-class Item(tp.Schema):
-    value = tp.Field[str]()
-    details = tp.Struct[Details]()  # remains Struct
 
-class Row(tp.Schema):
-    items = tp.ListStruct[Item](
-        alias="matches",
-        flat=True,
-        flat_divider=".",
-    )
+@tp.model
+class Result(tp.Model):
+    metrics: Metrics = tp.field(flat=True, flat_divider="__")
+    history: list[Metrics] = tp.field(flat=True, flat_divider="__")
 ```
 
-This produces `matches.value: List(String)` and
-`matches.details: List(Struct({source: String}))`. A nested flat node may use a
-different divider; each divider applies only to its own boundary.
+This produces `metrics__views`, `metrics__score`, `history__views`, and
+`history__score`. Flat ListStruct fields are parallel list columns. Both forms
+round-trip through `from_frame()` and support column expressions through
+`Result.columns.metrics.fields.views` and `Result.columns.history.item.score`.
 
-There is no second nested/flat representation. `schema`, `polars_schema()`,
-`to_frame()`, `to_frame_many()`, `from_frame()`, `iter_frame()`, and column
-`expr()` all use the same declared layout.
-
-## Rows and DataFrames
+Typed dictionaries use `List[Struct[key, value]]` as their physical storage:
 
 ```python
-row = Row(
-    request_id="one",
-    payload=Payload(title="Result", items=[]),
-)
-
-frame = row.to_frame()
-assert frame.schema == Row.schema
-restored = Row.from_frame(frame, strict_schema=True)
+weights: dict[str, float] = tp.field(default_factory=dict)
 ```
 
-`to_frame(strict=True)` rejects `None` for fields whose annotation does not
-include `| None`. With `strict=False`, such a value is replaced by the field's
-declared `default` or `default_factory`. A non-nullable field without a default
-still raises because there is no safe replacement value.
+## Dictionaries and DataFrames
 
-Use `to_dict()` and `from_dict()` for the logical Python representation.
-`by_alias=True` switches dictionary keys to Polars aliases. Unlike DataFrame
-storage, dictionaries keep nested model structure and do not flatten fields.
+`to_dict()` and `from_dict()` use Python attribute names by default. Pass
+`by_polars_name=True` to use physical names. Direct `from_dict()` rejects
+unknown keys unless the model declares an `Extras` field.
 
-Supported annotations include scalar Python types, nullable unions, lists,
-dictionaries, nested schemas, and the explicit integer, float, timestamp, and
-duration aliases exported by the module.
-
-## Views
-
-Views select typed fields from the schema's fixed representation:
+DataFrame deserialization is permissive by default:
 
 ```python
-class RowView(tp.View):
-    identifier = tp.ViewField[str](Row.request_id)
-    title = tp.ViewField[str](Row.payload.fields.title)
-
-selected = RowView.select(frame)
-objects = RowView.from_frame(frame)
+row = Row.from_frame(frame)  # strict_schema=False
 ```
 
-`select()` supports eager and lazy frames. A missing physical source becomes a
-typed null column; it does not probe for an alternative representation.
+Unknown top-level columns, nested Struct/ListStruct fields, and flat-prefixed
+columns are ignored when no `Extras` field exists. Declared `Extras` fields
+capture unknown values at their own model level. Missing fields use dataclass
+defaults; missing required fields raise `TypeError`.
 
-## Includes and dynamic fields
+Use `strict_schema=True` for an exact physical schema match, including column
+order, dtypes, nested fields, and flat columns:
 
-`Include`, `IncludeStruct`, and `IncludeListStruct` copy fields into partial
-schemas. Struct includes preserve `flat` and `flat_divider` from their source.
+```python
+row = Row.from_frame(frame, strict_schema=True)
+```
 
-Declare one `Extras()` descriptor to capture undeclared values. When building a
-frame, their dtypes are inferred across rows or supplied with `extra_schema`.
-For flattened Structs, nested extras are expanded using that Struct's divider.
+Strict schema validation is unavailable for models with dynamic `Extras`.
 
-See the runnable examples in `examples/typed_polars.py`,
-`examples/typed_polars_view.py`, and `examples/typed_polars_include.py`.
+See the runnable examples in `examples/typed_polars.py` and
+`examples/typed_polars_flat.py`. More implementation details are documented in
+`polars_list_math/typed_polars/README.md`.

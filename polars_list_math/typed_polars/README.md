@@ -1,4 +1,4 @@
-# typed_polars2
+# typed_polars
 
 Experimental tuple-oriented typed Polars models. Public rows are standard
 `dataclass(slots=True)` objects. During DataFrame construction top-level rows
@@ -7,7 +7,7 @@ become tuples and nested models become dynamically generated, cached-per-frame
 
 ```python
 import polars as pl
-import polars_list_math.typed_polars2 as tp
+import polars_list_math.typed_polars as tp
 
 
 @tp.model
@@ -96,7 +96,7 @@ is compiled.
 Typed dictionaries are stored without a dictionary fallback in the frame
 construction path: `dict[K, V]` becomes `List[Struct[key: K, value: V]]`, and
 each physical key/value item is a generated named tuple. See the complete
-[`examples/typed_polars2.py`](../../examples/typed_polars2.py) example.
+[`examples/typed_polars.py`](../../examples/typed_polars.py) example.
 
 The `@tp.model` decorator resolves every annotation immediately. An unknown
 scalar type, including one nested inside `list` or `dict`, raises `TypeError`

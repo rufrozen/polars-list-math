@@ -1,9 +1,9 @@
-# typed_polars2 construction performance
+# typed_polars construction performance
 
 This experiment measures complete DataFrame construction from two equivalent,
 already generated datasets:
 
-- public `typed_polars2` slots models through `TypedRow.to_frame_many()`;
+- public `typed_polars` slots models through `TypedRow.to_frame_many()`;
 - ready outer and nested `NamedTuple` objects passed directly to
   `pl.DataFrame()`.
 
@@ -20,7 +20,7 @@ Both datasets contain the same 19 physical columns and cover:
 - a nullable field.
 
 Dataset generation is deliberately outside the timed section. The
-`typed_polars2` measurement therefore includes compilation of its physical
+`typed_polars` measurement therefore includes compilation of its physical
 plan, conversion from slots dataclasses to tuples/nested named tuples, and
 Polars construction. The ready-NamedTuple baseline measures only Polars
 construction and represents the lowest-overhead input expected from this
@@ -29,13 +29,13 @@ design.
 Run from the repository root:
 
 ```bash
-uv run pytest performance/typed_polars2_construction -v -s
+uv run pytest performance/typed_polars_construction -v -s
 ```
 
 Override the default 10,000 rows:
 
 ```bash
-POLARS_TYPED2_ROWS=25000 uv run pytest performance/typed_polars2_construction -v -s
+POLARS_TYPED_ROWS=25000 uv run pytest performance/typed_polars_construction -v -s
 ```
 
 ## Results
@@ -44,11 +44,11 @@ Control run on 2026-08-19 with Python 3.12.3 and Polars 1.42.1:
 
 | Input | 1 row | 10,000 rows |
 |---|---:|---:|
-| `typed_polars2` slots models | 0.0011 s | 0.4315 s |
+| `typed_polars` slots models | 0.0011 s | 0.4315 s |
 | ready nested `NamedTuple` | 0.0010 s | 0.4447 s |
 
 The complete suite took **1.10 seconds** (`4 passed`). At 10,000 rows the full
-`typed_polars2` path was about 3% faster than the ready-NamedTuple baseline in
+`typed_polars` path was about 3% faster than the ready-NamedTuple baseline in
 this run; the difference is small enough to treat the implementations as
 roughly equivalent without repeated benchmark runs. The one-row result is not
 a stable microbenchmark.

@@ -1,4 +1,4 @@
-"""Typed models, schemas, and projections for Polars."""
+"""Tuple-oriented typed Polars models based on slots dataclasses."""
 
 from .dtypes import (
     F32,
@@ -18,20 +18,7 @@ from .dtypes import (
     TimestampNs,
     TimestampUs,
 )
-from .model import (
-    Column,
-    Extras,
-    Field,
-    Include,
-    IncludeListStruct,
-    IncludeStruct,
-    ListStruct,
-    ListStructColumn,
-    Schema,
-    Struct,
-    StructColumn,
-)
-from .projection import View, ViewField
+from .model import Column, Extras, ListStructColumn, Model, StructColumn, extras, field, model
 
 __all__ = [
     "F32",
@@ -49,18 +36,13 @@ __all__ = [
     "DurationNs",
     "DurationUs",
     "Extras",
-    "Field",
-    "Include",
-    "IncludeListStruct",
-    "IncludeStruct",
-    "ListStruct",
     "ListStructColumn",
-    "Schema",
-    "Struct",
+    "Model",
     "StructColumn",
     "TimestampMs",
     "TimestampNs",
     "TimestampUs",
-    "View",
-    "ViewField",
+    "extras",
+    "field",
+    "model",
 ]

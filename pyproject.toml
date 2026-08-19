@@ -92,4 +92,3 @@ convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
 "polars_list_math/typed_polars/model.py" = ["D105"]
-"polars_list_math/typed_polars/projection.py" = ["D105"]

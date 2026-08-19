@@ -1,802 +1,198 @@
-"""Typed row models and schemas for Polars.
-
-Python 3.12+.
-
-The same declaration provides:
-- typed instance attributes through descriptors;
-- lintable class-level Polars column references;
-- aliases for physical Polars names;
-- exact ``pl.Schema`` generation;
-- fixed hybrid Struct/List[Struct] storage and expressions;
-- row <-> dict <-> DataFrame conversion.
-
-Example::
-
-    class Suggestion(Schema):
-        value = Field[str]()
-        search_corrected_query = Field[str](alias="searchCorrectedQuery")
-
-    class Completion(Schema):
-        prefix = Field[str](alias="queryPrefix")
-        suggestions = ListStruct[Suggestion]()
-
-    class Row(Schema):
-        request_id = Field[str](alias="requestId")
-        position = Field[I32]()
-        completion = Struct[Completion](alias="completionData")
-
-    row.request_id                         # str
-    Row.request_id                        # Column[str]
-    Row.completion                        # StructColumn[Completion]
-    Row.completion.fields.prefix          # Column[str]
-    Row.completion.fields.suggestions     # ListStructColumn[Suggestion]
-    Row.completion.fields.suggestions.item.value  # Column[str]
-
-A deliberate typing trade-off: because Python's static type system has no
-mapped types, a runtime base class cannot synthesize a statically exact
-``__init__`` signature from descriptor declarations. Field access and column
-paths are statically typed, while constructor keyword arguments are checked at
-runtime. Full constructor-keyword checking additionally requires codegen or a
-type-checker plugin.
-"""
+"""Slots-dataclass models backed by tuple-oriented Polars construction."""
 
 from __future__ import annotations
 
-import copy
-from collections.abc import Callable, Iterable, Iterator, Mapping
-from dataclasses import dataclass
-from types import MappingProxyType
+import keyword
+from collections import namedtuple
+from collections.abc import Callable, Iterable, Mapping
+from dataclasses import dataclass, fields, is_dataclass
+from dataclasses import field as dataclass_field
+from types import UnionType
 from typing import (
+    Annotated,
     Any,
     ClassVar,
     Self,
+    Union,
     cast,
+    dataclass_transform,
     get_args,
     get_origin,
-    overload,
+    get_type_hints,
 )
 
 import polars as pl
 
-from .dtypes import (
-    F32,
-    F64,
-    I8,
-    I16,
-    I32,
-    I64,
-    U8,
-    U16,
-    U32,
-    U64,
-    DurationMs,
-    DurationNs,
-    DurationUs,
-    TimestampMs,
-    TimestampNs,
-    TimestampUs,
-    annotation_to_dtype,
-    base_annotation,
-)
+from .dtypes import annotation_to_dtype
 
-__all__ = [
-    "F32",
-    "F64",
-    "I8",
-    "I16",
-    "I32",
-    "I64",
-    "U8",
-    "U16",
-    "U32",
-    "U64",
-    "Column",
-    "DurationMs",
-    "DurationNs",
-    "DurationUs",
-    "Extras",
-    "Field",
-    "Include",
-    "IncludeListStruct",
-    "IncludeStruct",
-    "ListStruct",
-    "ListStructColumn",
-    "Schema",
-    "Struct",
-    "StructColumn",
-    "TimestampMs",
-    "TimestampNs",
-    "TimestampUs",
-]
+_METADATA_KEY = "polars_list_math.typed_polars"
+_UNSET = object()
+_KeyValuePhysical = namedtuple("_KeyValuePhysical", ("key", "value"))
 
 
-_MISSING = object()
+@dataclass(frozen=True, slots=True)
+class _FieldOptions:
+    alias: str | None = None
+    dtype: Any | None = None
+    flat: bool = False
+    flat_divider: str = ":"
+    extras: bool = False
 
 
-# ---------------------------------------------------------------------------
-# Polars column references
-# ---------------------------------------------------------------------------
+def field[T](
+    *,
+    default: T | object = _UNSET,
+    default_factory: Callable[[], T] | object = _UNSET,
+    polars_name: str | None = None,
+    dtype: Any | None = None,
+    flat: bool = False,
+    flat_divider: str = ":",
+    repr: bool = True,  # noqa: A002
+) -> T:
+    """Declare dataclass defaults and Polars-specific field metadata."""
+    if not isinstance(flat, bool):
+        raise TypeError("flat must be a bool")
+    if not isinstance(flat_divider, str) or not flat_divider:
+        raise TypeError("flat_divider must be a non-empty string")
+    options = _FieldOptions(polars_name, dtype, flat, flat_divider)
+    kwargs: dict[str, Any] = {"metadata": {_METADATA_KEY: options}, "repr": repr}
+    if default is not _UNSET:
+        kwargs["default"] = default
+    if default_factory is not _UNSET:
+        kwargs["default_factory"] = default_factory
+    return cast(T, dataclass_field(**kwargs))
 
 
+type Extras = dict[str, Any]
+
+
+def extras(*, default_factory: Callable[[], Extras] = dict) -> Extras:
+    """Declare dynamic fields that become additional physical columns."""
+    options = _FieldOptions(extras=True)
+    return cast(
+        Extras,
+        dataclass_field(
+            default_factory=default_factory,
+            metadata={_METADATA_KEY: options},
+            repr=False,
+        ),
+    )
+
+
+@dataclass(frozen=True, slots=True)
 class Column[T]:
-    """A typed reference to a top-level or nested Polars field."""
+    """Typed Polars column path exposed through ``Model.columns``."""
 
-    def __init__(
-        self,
-        *,
-        name: str,
-        alias: str,
-        dtype: Any,
-        root_alias: str,
-        steps: tuple[tuple[str, str], ...] = (),
-        python_path: tuple[str, ...] = (),
-        polars_path: tuple[str, ...] = (),
-        list_depth: int = 0,
-        field_info: _FieldBase | None = None,
-    ) -> None:
-        self.name = name
-        self.alias = alias
-        self.dtype = dtype
-        self.root_alias = root_alias
-        self._steps = steps
-        self.python_path = python_path or (name,)
-        self.polars_path = polars_path or (alias,)
-        self._list_depth = list_depth
-        self._field_info = field_info
+    name: str
+    alias: str
+    dtype: Any
+    root_alias: str
+    steps: tuple[tuple[str, str], ...] = ()
 
     def expr(self) -> pl.Expr:
-        """Return an expression for this field's fixed storage path."""
-        return _build_expr(self.root_alias, self._steps)
-
-    def __str__(self) -> str:
-        return self.alias
-
-    def __repr__(self) -> str:
-        return f"Column(path={'.'.join(self.polars_path)!r}, dtype={self.dtype!r})"
+        return _apply_column_steps(pl.col(self.root_alias), self.steps)
 
 
-class _BoundColumnsProxy:
-    """Runtime proxy for nested fields.
+class _Columns:
+    def __init__(self, values: Mapping[str, Any]) -> None:
+        self._values = dict(values)
 
-    Public properties expose it as ``type[SchemaSubclass]`` to static type
-    checkers. At runtime it returns columns already bound to the parent path.
-    """
-
-    def __init__(self, columns: Mapping[str, Column[Any]]) -> None:
-        self._columns = dict(columns)
-
-    def __getattr__(self, name: str) -> Column[Any]:
+    def __getattr__(self, name: str) -> Any:
         try:
-            return self._columns[name]
+            return self._values[name]
         except KeyError:
             raise AttributeError(name) from None
 
-    def __getitem__(self, name: str) -> Column[Any]:
-        return self._columns[name]
+    def __getitem__(self, name: str) -> Any:
+        return self._values[name]
 
-    def __iter__(self) -> Iterator[Column[Any]]:
-        return iter(self._columns.values())
 
-    def __repr__(self) -> str:
-        return f"BoundColumns({', '.join(self._columns)})"
+@dataclass(frozen=True, slots=True)
+class StructColumn[T](Column[T]):
+    fields: Any = None
 
 
-class StructColumn[S: Schema](Column[S]):
-    """A Struct column. Use ``.fields.<name>`` for typed nested access."""
-
-    def __init__(self, *, fields_proxy: _BoundColumnsProxy, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        self._fields_proxy = fields_proxy
-
-    @property
-    def fields(self) -> type[S]:
-        # Static trick: the Schema class contains the same typed descriptors,
-        # while runtime needs a path-bound proxy rather than the real class.
-        return cast(type[S], self._fields_proxy)
-
-    def expr(self) -> pl.Expr:
-        if self._field_info is not None and cast(Struct[Any], self._field_info).flat:
-            raise TypeError("A flat Struct has no single physical column")
-        return super().expr()
-
-
-class ListStructColumn[S: Schema](Column[list[S]]):
-    """A List[Struct] column. Use ``.item.<name>`` for typed item access."""
-
-    def __init__(self, *, item_proxy: _BoundColumnsProxy, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        self._item_proxy = item_proxy
-
-    @property
-    def item(self) -> type[S]:
-        return cast(type[S], self._item_proxy)
-
-    def expr(self) -> pl.Expr:
-        if self._field_info is not None and cast(ListStruct[Any], self._field_info).flat:
-            raise TypeError("A flat ListStruct has no single physical column")
-        return super().expr()
-
-
-# ---------------------------------------------------------------------------
-# Typed field descriptors
-# ---------------------------------------------------------------------------
-
-
-class _FieldBase:
-    def __init__(
-        self,
-        default: Any = _MISSING,
-        *,
-        alias: str | None = None,
-        dtype: Any | None = None,
-        default_factory: Callable[[], Any] | object = _MISSING,
-        repr: bool = True,  # noqa: A002 - matches dataclasses/Pydantic terminology
-    ) -> None:
-        if default is not _MISSING and default_factory is not _MISSING:
-            raise TypeError("field cannot specify both default and default_factory")
-
-        self.alias_override = alias
-        self.dtype_override = dtype
-        self.default = default
-        self.default_factory = default_factory
-        self.repr = repr
-
-        self.name = ""
-        self.index = -1
-        self.owner: type[Schema] | None = None
-        self._column: Column[Any] | None = None
-        self._explicit_type: Any = _MISSING
-        self._resolved_python_type: Any = _MISSING
-
-    def __set_name__(self, owner: type, name: str) -> None:
-        self.name = name
-
-    @property
-    def alias(self) -> str:
-        return self.alias_override or self.name
-
-    @property
-    def required(self) -> bool:
-        return self.default is _MISSING and self.default_factory is _MISSING
-
-    @property
-    def python_type(self) -> Any:
-        if self._explicit_type is not _MISSING:
-            return self._explicit_type
-        if self._resolved_python_type is not _MISSING:
-            return self._resolved_python_type
-
-        orig = getattr(self, "__orig_class__", None)
-        if orig is None:
-            raise TypeError(
-                f"{type(self).__name__} {self.name!r} must have a generic type, "
-                f"for example {type(self).__name__}[str]()"
-            )
-
-        args = get_args(orig)
-        if len(args) != 1:
-            raise TypeError(f"Cannot resolve generic type for {self!r}")
-        self._resolved_python_type = args[0]
-        return self._resolved_python_type
-
-    @property
-    def polars_dtype(self) -> Any:
-        if self.dtype_override is not None:
-            return self.dtype_override
-        return annotation_to_dtype(self.storage_type)
-
-    @property
-    def storage_type(self) -> Any:
-        return self.python_type
-
-    def get_default(self) -> Any:
-        if self.default is not _MISSING:
-            return copy.deepcopy(self.default)
-        if self.default_factory is not _MISSING:
-            factory = self.default_factory
-            assert callable(factory)
-            return factory()
-        raise TypeError(f"Field {self.name!r} has no default")
-
-    def _bind(self, owner: type[Schema]) -> None:
-        self.owner = owner
-
-    def _set_column(self, column: Column[Any]) -> None:
-        self._column = column
-
-    def _column_or_error(self) -> Column[Any]:
-        if self._column is None:
-            raise RuntimeError(f"Field {self.name!r} is not bound to a Schema")
-        return self._column
-
-    def __repr__(self) -> str:
-        return (
-            f"{type(self).__name__}(name={self.name!r}, alias={self.alias!r}, "
-            f"dtype={self.polars_dtype!r}, required={self.required!r})"
-        )
-
-
-class Field[T](_FieldBase):
-    """Scalar/list field descriptor.
-
-    ``obj.x`` is statically ``T``; ``Model.x`` is statically ``Column[T]``.
-    """
-
-    @overload
-    def __get__(self, instance: None, owner: type[Schema] | None = None) -> Column[T]: ...
-
-    @overload
-    def __get__(self, instance: Schema, owner: type[Schema] | None = None) -> T: ...
-
-    def __get__(self, instance: Schema | None, owner: type[Schema] | None = None) -> T | Column[T]:
-        if instance is None:
-            return cast(Column[T], self._column_or_error())
-        try:
-            value = instance._values[self.index]
-        except IndexError:
-            raise AttributeError(self.name) from None
-        if value is _MISSING:
-            raise AttributeError(self.name)
-        return cast(T, value)
-
-    def __set__(self, instance: Schema, value: T) -> None:
-        instance._values[self.index] = value
-
-
-class Struct[S: Schema](_FieldBase):
-    """Nested Schema stored as a Polars Struct."""
-
-    def __init__(
-        self,
-        default: Any = _MISSING,
-        *,
-        alias: str | None = None,
-        flat: bool = False,
-        flat_divider: str = ":",
-        default_factory: Callable[[], Any] | object = _MISSING,
-        repr: bool = True,  # noqa: A002 - matches dataclasses/Pydantic terminology
-    ) -> None:
-        if not isinstance(flat, bool):
-            raise TypeError("flat must be a bool")
-        if not isinstance(flat_divider, str) or not flat_divider:
-            raise TypeError("flat_divider must be a non-empty string")
-        super().__init__(
-            default,
-            alias=alias,
-            default_factory=default_factory,
-            repr=repr,
-        )
-        self.flat = flat
-        self.flat_divider = flat_divider
-
-    @overload
-    def __get__(self, instance: None, owner: type[Schema] | None = None) -> StructColumn[S]: ...
-
-    @overload
-    def __get__(self, instance: Schema, owner: type[Schema] | None = None) -> S: ...
-
-    def __get__(
-        self, instance: Schema | None, owner: type[Schema] | None = None
-    ) -> S | StructColumn[S]:
-        if instance is None:
-            return cast(StructColumn[S], self._column_or_error())
-        try:
-            value = instance._values[self.index]
-        except IndexError:
-            raise AttributeError(self.name) from None
-        if value is _MISSING:
-            raise AttributeError(self.name)
-        return cast(S, value)
-
-    def __set__(self, instance: Schema, value: S) -> None:
-        instance._values[self.index] = value
-
-    @property
-    def storage_type(self) -> Any:
-        return self.python_type
-
-
-class ListStruct[S: Schema](_FieldBase):
-    """List of nested Schema objects stored as Polars List[Struct]."""
-
-    def __init__(
-        self,
-        default: Any = _MISSING,
-        *,
-        alias: str | None = None,
-        flat: bool = False,
-        flat_divider: str = ":",
-        default_factory: Callable[[], Any] | object = _MISSING,
-        repr: bool = True,  # noqa: A002 - matches dataclasses/Pydantic terminology
-    ) -> None:
-        if not isinstance(flat, bool):
-            raise TypeError("flat must be a bool")
-        if not isinstance(flat_divider, str) or not flat_divider:
-            raise TypeError("flat_divider must be a non-empty string")
-        super().__init__(
-            default,
-            alias=alias,
-            default_factory=default_factory,
-            repr=repr,
-        )
-        self.flat = flat
-        self.flat_divider = flat_divider
-
-    @overload
-    def __get__(self, instance: None, owner: type[Schema] | None = None) -> ListStructColumn[S]: ...
-
-    @overload
-    def __get__(self, instance: Schema, owner: type[Schema] | None = None) -> list[S]: ...
-
-    def __get__(
-        self, instance: Schema | None, owner: type[Schema] | None = None
-    ) -> list[S] | ListStructColumn[S]:
-        if instance is None:
-            return cast(ListStructColumn[S], self._column_or_error())
-        try:
-            value = instance._values[self.index]
-        except IndexError:
-            raise AttributeError(self.name) from None
-        if value is _MISSING:
-            raise AttributeError(self.name)
-        return cast(list[S], value)
-
-    def __set__(self, instance: Schema, value: list[S]) -> None:
-        instance._values[self.index] = value
-
-    @property
-    def storage_type(self) -> Any:
-        return list[self.python_type]
-
-
-class Include[T](Field[T]):
-    """A scalar/list field projected from another Schema column."""
-
-    def __init__(self, source: Column[T]) -> None:
-        if isinstance(source, (StructColumn, ListStructColumn)):
-            raise TypeError("Use IncludeStruct or IncludeListStruct for nested schemas")
-        info = _source_field_info(source)
-        super().__init__(
-            _copied_default(info),
-            alias=source.alias,
-            dtype=source.dtype,
-            default_factory=_copied_default_factory(info),
-            repr=info.repr,
-        )
-        self._explicit_type = info.python_type
-
-
-class IncludeStruct[P: Schema](Struct[P]):
-    """A Struct field projected into an explicitly declared nested Schema."""
-
-    def __init__(self, source: StructColumn[Any], schema: type[P]) -> None:
-        if not isinstance(source, StructColumn):
-            raise TypeError("IncludeStruct source must be a StructColumn")
-        info = cast(Struct[Any], _source_field_info(source))
-        super().__init__(
-            _copied_default(info),
-            alias=source.alias,
-            flat=info.flat,
-            flat_divider=info.flat_divider,
-            default_factory=_copied_default_factory(info),
-            repr=info.repr,
-        )
-        self._explicit_type = schema
-
-
-class IncludeListStruct[P: Schema](ListStruct[P]):
-    """A ListStruct field projected into an explicitly declared item Schema."""
-
-    def __init__(self, source: ListStructColumn[Any], schema: type[P]) -> None:
-        if not isinstance(source, ListStructColumn):
-            raise TypeError("IncludeListStruct source must be a ListStructColumn")
-        info = cast(ListStruct[Any], _source_field_info(source))
-        super().__init__(
-            _copied_default(info),
-            alias=source.alias,
-            flat=info.flat,
-            flat_divider=info.flat_divider,
-            default_factory=_copied_default_factory(info),
-            repr=info.repr,
-        )
-        self._explicit_type = schema
-
-
-def _source_field_info(source: Column[Any]) -> _FieldBase:
-    if not isinstance(source, Column):
-        raise TypeError("Include source must be a Column")
-    if source._field_info is None:
-        raise TypeError("Include source must belong to a Schema")
-    return source._field_info
-
-
-def _copied_default(info: _FieldBase) -> Any:
-    if info.default is _MISSING:
-        return _MISSING
-    return copy.deepcopy(info.default)
-
-
-def _copied_default_factory(info: _FieldBase) -> Callable[[], Any] | object:
-    return info.default_factory
+@dataclass(frozen=True, slots=True)
+class ListStructColumn[T](Column[list[T]]):
+    item: Any = None
 
 
 @dataclass(frozen=True, slots=True)
 class _FieldPlan:
-    index: int
     name: str
     alias: str
-    info: _FieldBase
-    serialize_python: Callable[[Any], Any]
-    serialize_alias: Callable[[Any], Any]
+    annotation: Any
+    dtype: Any
+    kind: str
+    nested: type[Model] | None
+    flat: bool
+    flat_divider: str
 
 
-def _compile_field_plan(index: int, name: str, info: _FieldBase) -> _FieldPlan:
-    return _FieldPlan(
-        index=index,
-        name=name,
-        alias=info.alias,
-        info=info,
-        serialize_python=_compile_serializer(info.storage_type, by_alias=False),
-        serialize_alias=_compile_serializer(info.storage_type, by_alias=True),
-    )
+@dataclass(frozen=True, slots=True)
+class _ModelPlan:
+    model: type[Model]
+    fields: tuple[_FieldPlan, ...]
+    extras_name: str | None
 
 
-def _compile_serializer(
-    annotation: Any,
-    *,
-    by_alias: bool,
-) -> Callable[[Any], Any]:
-    annotation = base_annotation(annotation)
-    origin = get_origin(annotation)
-
-    if isinstance(annotation, type) and issubclass(annotation, Schema):
-
-        def serialize_schema(value: Any) -> Any:
-            if value is None:
-                return None
-            if not isinstance(value, annotation):
-                raise TypeError(f"Expected {annotation.__name__}, got {type(value).__name__}")
-            return value._to_dict_with_plan(by_alias=by_alias)
-
-        return serialize_schema
-
-    if origin is list:
-        (item_type,) = get_args(annotation)
-        item_serializer = _compile_serializer(item_type, by_alias=by_alias)
-
-        def serialize_list(value: Any) -> Any:
-            if value is None:
-                return None
-            if not isinstance(value, list):
-                raise TypeError(f"Expected list, got {type(value).__name__}")
-            return [item_serializer(item) for item in value]
-
-        return serialize_list
-
-    if origin is dict:
-        key_type, value_type = get_args(annotation)
-        key_serializer = _compile_serializer(key_type, by_alias=by_alias)
-        value_serializer = _compile_serializer(value_type, by_alias=by_alias)
-
-        def serialize_dict(value: Any) -> Any:
-            if value is None:
-                return None
-            if not isinstance(value, Mapping):
-                raise TypeError(f"Expected mapping, got {type(value).__name__}")
-            return [
-                {
-                    "key": key_serializer(key),
-                    "value": value_serializer(item),
-                }
-                for key, item in value.items()
-            ]
-
-        return serialize_dict
-
-    def serialize_scalar(value: Any) -> Any:
-        return value
-
-    return serialize_scalar
+@dataclass(frozen=True, slots=True)
+class _PhysicalField:
+    name: str
+    dtype: Any
+    getter: Callable[[Any], Any]
 
 
-class Extras:
-    """Virtual descriptor that captures fields not declared by a Schema."""
-
-    def __init__(self) -> None:
-        self.name = ""
-
-    def __set_name__(self, owner: type, name: str) -> None:
-        self.name = name
-
-    @overload
-    def __get__(self, instance: None, owner: type[Schema] | None = None) -> Self: ...
-
-    @overload
-    def __get__(self, instance: Schema, owner: type[Schema] | None = None) -> dict[str, Any]: ...
-
-    def __get__(
-        self, instance: Schema | None, owner: type[Schema] | None = None
-    ) -> Self | dict[str, Any]:
-        if instance is None:
-            return self
-        return cast(dict[str, Any], instance.__dict__[self.name])
-
-    def __set__(self, instance: Schema, value: Mapping[str, Any]) -> None:
-        if not isinstance(value, Mapping):
-            raise TypeError(f"Extras {self.name!r} must be a mapping")
-        cast(dict[str, Any], instance.__dict__)[self.name] = dict(value)
-
-
-# ---------------------------------------------------------------------------
-# Schema metaclass and row model
-# ---------------------------------------------------------------------------
-
-
-class SchemaMeta(type):
-    def __new__(
-        mcls,
-        name: str,
-        bases: tuple[type, ...],
-        namespace: dict[str, Any],
-        **kwargs: Any,
-    ) -> SchemaMeta:
-        cls = super().__new__(mcls, name, bases, namespace, **kwargs)
-
-        field_bases = [base for base in bases if getattr(base, "__schema_fields__", None)]
-        if len(field_bases) > 1:
-            base_names = ", ".join(base.__name__ for base in field_bases)
-            raise TypeError(
-                f"{name}: multiple inheritance from field-bearing schemas "
-                f"is not supported ({base_names})"
-            )
-
-        fields: dict[str, _FieldBase] = {}
-        extras_field: Extras | None = None
-        for base in bases:
-            fields.update(getattr(base, "__schema_fields__", {}))
-            inherited_extras = getattr(base, "__extras_field__", None)
-            if inherited_extras is not None:
-                extras_field = inherited_extras
-
-        for attr_name, value in namespace.items():
-            if isinstance(value, _FieldBase):
-                value._bind(cast("type[Schema]", cls))
-                fields[attr_name] = value
-            elif isinstance(value, Extras):
-                if extras_field is not None and extras_field is not value:
-                    raise TypeError(f"{name}: only one Extras field is allowed")
-                extras_field = value
-
-        aliases: dict[str, str] = {}
-        for field_name, info in fields.items():
-            other = aliases.get(info.alias)
-            if other is not None and other != field_name:
-                raise TypeError(
-                    f"{name}: duplicate Polars alias {info.alias!r} "
-                    f"for {other!r} and {field_name!r}"
-                )
-            aliases[info.alias] = field_name
-
-        field_plan = tuple(
-            _compile_field_plan(index, field_name, info)
-            for index, (field_name, info) in enumerate(fields.items())
-        )
-        type.__setattr__(cls, "__schema_fields__", fields)
-        type.__setattr__(cls, "__extras_field__", extras_field)
-        type.__setattr__(cls, "__polars_schema_cache__", None)
-        type.__setattr__(cls, "__field_plan__", field_plan)
-        type.__setattr__(
-            cls,
-            "__field_plan_by_alias__",
-            {plan.alias: plan for plan in field_plan},
-        )
-
-        # Bind class-level typed Column objects. This happens only after the
-        # complete Schema subclass exists, so nested schema descriptors can be
-        # inspected safely.
-        for index, info in enumerate(fields.values()):
-            info.index = index
-            info._set_column(
-                _build_column(
-                    info,
-                    root_alias=info.alias,
-                    steps=(),
-                    python_path=(info.name,),
-                    polars_path=(info.alias,),
-                )
-            )
-
-        return cls
+@dataclass(frozen=True, slots=True)
+class _PhysicalPlan:
+    fields: tuple[_PhysicalField, ...]
+    row_type: type[tuple[Any, ...]] | None
 
     @property
-    def schema(cls) -> pl.Schema:
-        return cast("type[Schema]", cls).polars_schema()
+    def schema(self) -> pl.Schema:
+        return pl.Schema({item.name: item.dtype for item in self.fields})
+
+    def serialize(self, value: Any) -> tuple[Any, ...]:
+        values = tuple(item.getter(value) for item in self.fields)
+        return self.row_type(*values) if self.row_type is not None else values
 
 
-class Schema(metaclass=SchemaMeta):
-    """Base row model.
+class Model:
+    """Base class for models decorated with :func:`model`."""
 
-    Constructor keys are validated at runtime. Descriptor reads/writes and
-    class-level column references are statically typed.
-    """
+    __slots__ = ()
 
-    __schema_fields__: ClassVar[dict[str, _FieldBase]]
-    __extras_field__: ClassVar[Extras | None]
-    __polars_schema_cache__: ClassVar[pl.Schema | None]
-    __field_plan__: ClassVar[tuple[_FieldPlan, ...]]
-    __field_plan_by_alias__: ClassVar[dict[str, _FieldPlan]]
-
-    _values: list[Any]
-
-    def __init__(self, **kwargs: Any) -> None:
-        fields = type(self).__schema_fields__
-        self._values = [_MISSING] * len(fields)
-        extras_field = type(self).__extras_field__
-        accepted = set(fields)
-        if extras_field is not None:
-            accepted.add(extras_field.name)
-        unknown = set(kwargs) - accepted
-        if unknown:
-            raise TypeError(
-                f"Unexpected field(s) for {type(self).__name__}: {', '.join(sorted(unknown))}"
-            )
-
-        missing: list[str] = []
-        for name, info in fields.items():
-            if name in kwargs:
-                value = kwargs[name]
-            elif info.required:
-                missing.append(name)
-                continue
-            else:
-                value = info.get_default()
-            setattr(self, name, value)
-
-        if extras_field is not None:
-            setattr(self, extras_field.name, kwargs.get(extras_field.name, {}))
-
-        if missing:
-            raise TypeError(
-                f"Missing required field(s) for {type(self).__name__}: {', '.join(missing)}"
-            )
+    __tp2_plan__: ClassVar[_ModelPlan]
+    columns: ClassVar[Any]
 
     @classmethod
-    def model_fields(cls) -> Mapping[str, _FieldBase]:
-        return MappingProxyType(cls.__schema_fields__)
+    def polars_schema(cls) -> pl.Schema:
+        return _build_physical_plan(cls, [], top_level=True).schema
 
     @classmethod
-    def polars_schema(cls, extra_schema: Mapping[str, Any] | None = None) -> pl.Schema:
-        from .frame import _resolved_schema, storage_schema
+    def to_frame_many(cls, rows: Iterable[Self], *, strict: bool = True) -> pl.DataFrame:
+        materialized = list(rows)
+        plan = _build_physical_plan(cls, materialized, top_level=True)
+        physical_rows = [plan.serialize(row) for row in materialized]
+        return pl.DataFrame(physical_rows, orient="row", schema=plan.schema, strict=strict)
 
-        if not extra_schema and cls.__polars_schema_cache__ is not None:
-            return cls.__polars_schema_cache__
-        logical = _resolved_schema(cls, [], strict=True, extra_schema=extra_schema)
-        result = storage_schema(cls, logical)
-        if not extra_schema:
-            cls.__polars_schema_cache__ = result
-        return result
+    def to_frame(self, *, strict: bool = True) -> pl.DataFrame:
+        return type(self).to_frame_many([self], strict=strict)
 
-    def to_dict(self, *, by_alias: bool = False) -> dict[str, Any]:
-        return self._to_dict_with_plan(by_alias=by_alias)
-
-    def _to_dict_with_plan(self, *, by_alias: bool) -> dict[str, Any]:
-        result = {
-            (plan.alias if by_alias else plan.name): (
-                plan.serialize_alias if by_alias else plan.serialize_python
-            )(self._values[plan.index])
-            for plan in type(self).__field_plan__
-        }
-        extras_field = type(self).__extras_field__
-        if extras_field is not None:
-            extras = getattr(self, extras_field.name)
-            conflicts = set(result) & set(extras)
-            if conflicts:
-                raise TypeError(
-                    f"Extras conflict with declared field(s): {', '.join(sorted(conflicts))}"
-                )
-            result.update(
-                {key: _serialize_value(value, by_alias=by_alias) for key, value in extras.items()}
-            )
+    def to_dict(self, *, by_polars_name: bool = False) -> dict[str, Any]:
+        """Serialize this model using Python or physical Polars field names."""
+        plan = type(self).__tp2_plan__
+        result: dict[str, Any] = {}
+        for item in plan.fields:
+            value = getattr(self, item.name)
+            key = item.alias if by_polars_name else item.name
+            if item.kind == "struct" and value is not None:
+                value = value.to_dict(by_polars_name=by_polars_name)
+            elif item.kind == "list_struct" and value is not None:
+                value = [child.to_dict(by_polars_name=by_polars_name) for child in value]
+            result[key] = value
+        if plan.extras_name is not None:
+            result.update(getattr(self, plan.extras_name))
         return result
 
     @classmethod
@@ -804,338 +200,417 @@ class Schema(metaclass=SchemaMeta):
         cls,
         data: Mapping[str, Any],
         *,
-        by_alias: bool = False,
-        forbid_extra: bool = True,
+        by_polars_name: bool = False,
+        _ignore_unknown: bool = False,
     ) -> Self:
+        """Build a model from Python or physical Polars field names."""
+        plan = cls.__tp2_plan__
+        remaining = dict(data)
         kwargs: dict[str, Any] = {}
-        expected_keys: set[str] = set()
-        missing: list[str] = []
-
-        for name, info in cls.__schema_fields__.items():
-            key = info.alias if by_alias else name
-            expected_keys.add(key)
-
-            if key in data:
-                kwargs[name] = _deserialize_value(
-                    info.storage_type,
-                    data[key],
-                    by_alias=by_alias,
+        for item in plan.fields:
+            key = item.alias if by_polars_name else item.name
+            if key not in remaining:
+                continue
+            value = remaining.pop(key)
+            if item.kind == "struct" and value is not None:
+                assert item.nested is not None
+                if not isinstance(value, Mapping):
+                    raise TypeError(f"Field {item.name!r} must be a mapping")
+                value = item.nested.from_dict(
+                    value,
+                    by_polars_name=by_polars_name,
+                    _ignore_unknown=_ignore_unknown,
                 )
-            elif info.required:
-                missing.append(key)
-
-        if missing:
-            raise TypeError(f"Missing required key(s) for {cls.__name__}: {', '.join(missing)}")
-
-        extra = set(data) - expected_keys
-        if cls.__extras_field__ is not None:
-            kwargs[cls.__extras_field__.name] = {key: data[key] for key in extra}
-        elif forbid_extra and extra:
-            raise TypeError(f"Unexpected key(s) for {cls.__name__}: {', '.join(sorted(extra))}")
-
+            elif item.kind == "list_struct" and value is not None:
+                assert item.nested is not None
+                if not isinstance(value, list) or not all(
+                    isinstance(child, Mapping) for child in value
+                ):
+                    raise TypeError(f"Field {item.name!r} must be a list of mappings")
+                value = [
+                    item.nested.from_dict(
+                        child,
+                        by_polars_name=by_polars_name,
+                        _ignore_unknown=_ignore_unknown,
+                    )
+                    for child in value
+                ]
+            elif item.kind == "dict" and isinstance(value, list):
+                value = {entry["key"]: entry["value"] for entry in value}
+            kwargs[item.name] = value
+        if plan.extras_name is not None:
+            kwargs[plan.extras_name] = {
+                name: value for name, value in remaining.items() if value is not None
+            }
+        elif remaining and not _ignore_unknown:
+            raise TypeError(f"Unexpected key(s) for {cls.__name__}: {', '.join(sorted(remaining))}")
         return cls(**kwargs)
 
-    def to_frame(
-        self,
-        *,
-        strict: bool = True,
-        extra_schema: Mapping[str, Any] | None = None,
-    ) -> pl.DataFrame:
-        return type(self).to_frame_many(
-            [self],
-            strict=strict,
-            extra_schema=extra_schema,
-        )
-
     @classmethod
-    def to_frame_many(
-        cls,
-        rows: Iterable[Self],
-        *,
-        strict: bool = True,
-        extra_schema: Mapping[str, Any] | None = None,
-    ) -> pl.DataFrame:
-        from .frame import build_frame
-
-        return build_frame(
-            cls,
-            list(rows),
-            strict=strict,
-            extra_schema=extra_schema,
-        )
-
-    @classmethod
-    def from_frame(
-        cls,
-        df: pl.DataFrame,
-        index: int = 0,
-        *,
-        strict_schema: bool = False,
-    ) -> Self:
+    def iter_frame(cls, frame: pl.DataFrame, *, strict_schema: bool = False) -> Iterable[Self]:
         if strict_schema:
-            cls.assert_frame_schema(df)
-        from .frame import deserialize_row
-
-        return cast(Self, deserialize_row(cls, df.row(index, named=True)))
-
-    @classmethod
-    def iter_frame(
-        cls,
-        df: pl.DataFrame,
-        *,
-        strict_schema: bool = False,
-    ) -> Iterator[Self]:
-        if strict_schema:
-            cls.assert_frame_schema(df)
-        from .frame import deserialize_row
-
-        for row in df.iter_rows(named=True):
-            yield cast(Self, deserialize_row(cls, row))
+            cls.assert_frame_schema(frame)
+        for row in frame.iter_rows(named=True):
+            yield cls.from_dict(
+                _unflatten(cls, row),
+                by_polars_name=True,
+                _ignore_unknown=not strict_schema,
+            )
 
     @classmethod
-    def assert_frame_schema(cls, df: pl.DataFrame, *, allow_extra: bool = False) -> None:
+    def from_frame(cls, frame: pl.DataFrame, *, strict_schema: bool = False) -> Self:
+        if frame.height != 1:
+            raise ValueError(f"Expected exactly one row, got {frame.height}")
+        return next(iter(cls.iter_frame(frame, strict_schema=strict_schema)))
+
+    @classmethod
+    def assert_frame_schema(cls, frame: pl.DataFrame) -> None:
+        """Require the exact declared schema for models without dynamic extras."""
+        if _model_has_extras(cls):
+            raise TypeError("Strict schema validation is unavailable for models with Extras")
         expected = cls.polars_schema()
-        actual = df.schema
+        if frame.schema != expected:
+            raise TypeError(f"Unexpected DataFrame schema: expected {expected}, got {frame.schema}")
 
-        if not allow_extra:
-            if actual != expected:
-                raise TypeError(
-                    f"Unexpected DataFrame schema for {cls.__name__}:\n"
-                    f"expected={expected}\nactual={actual}"
-                )
-            return
 
-        missing = [name for name in expected if name not in actual]
-        wrong = [
-            name for name, dtype in expected.items() if name in actual and actual[name] != dtype
-        ]
-        if missing or wrong:
+@dataclass_transform(field_specifiers=(field, extras))
+def model[T: type[Model]](cls: T) -> T:
+    """Compile a class into a slots-dataclass Polars model."""
+    if not is_dataclass(cls) or "__dataclass_fields__" not in cls.__dict__:
+        cls = cast(T, dataclass(slots=True)(cls))
+    elif "__slots__" not in cls.__dict__:
+        raise TypeError("@model requires @dataclass(slots=True)")
+
+    hints = get_type_hints(cls, include_extras=True)
+    plans: list[_FieldPlan] = []
+    extras_name: str | None = None
+    aliases: set[str] = set()
+    for item in fields(cast(Any, cls)):
+        annotation = hints[item.name]
+        options = cast(_FieldOptions, item.metadata.get(_METADATA_KEY, _FieldOptions()))
+        if options.extras:
+            if extras_name is not None:
+                raise TypeError(f"{cls.__name__} declares more than one extras field")
+            extras_name = item.name
+            continue
+        alias = options.alias or item.name
+        _validate_alias(alias)
+        if alias in aliases:
+            raise TypeError(f"{cls.__name__} has duplicate alias {alias!r}")
+        aliases.add(alias)
+        base = _base_annotation(annotation)
+        origin = get_origin(base)
+        nested: type[Model] | None = None
+        kind = "scalar"
+        if isinstance(base, type) and issubclass(base, Model):
+            _require_model(base)
+            nested, kind = base, "struct"
+        elif origin is list:
+            (inner,) = get_args(base)
+            inner = _base_annotation(inner)
+            if isinstance(inner, type) and issubclass(inner, Model):
+                _require_model(inner)
+                nested, kind = inner, "list_struct"
+        elif origin is dict:
+            kind = "dict"
+        if options.flat and kind not in ("struct", "list_struct"):
             raise TypeError(
-                f"Unexpected DataFrame schema for {cls.__name__}: "
-                f"missing={missing}, wrong_dtype={wrong}"
+                f"Field {cls.__name__}.{item.name} cannot use flat=True; "
+                "only nested models and lists of nested models can be flat"
             )
-
-    def __repr__(self) -> str:
-        values = []
-        for name, info in type(self).__schema_fields__.items():
-            if info.repr:
-                values.append(f"{name}={getattr(self, name)!r}")
-        extras_field = type(self).__extras_field__
-        if extras_field is not None:
-            values.append(f"{extras_field.name}={getattr(self, extras_field.name)!r}")
-        return f"{type(self).__name__}({', '.join(values)})"
-
-    def __eq__(self, other: object) -> bool:
-        return (
-            type(self) is type(other)
-            and isinstance(other, Schema)
-            and self.to_dict() == other.to_dict()
+        dtype = options.dtype
+        if dtype is None and kind in ("scalar", "dict"):
+            dtype = annotation_to_dtype(annotation)
+        plans.append(
+            _FieldPlan(
+                item.name,
+                alias,
+                annotation,
+                dtype,
+                kind,
+                nested,
+                options.flat,
+                options.flat_divider,
+            )
         )
+    type.__setattr__(cls, "__tp2_plan__", _ModelPlan(cls, tuple(plans), extras_name))
+    type.__setattr__(cls, "columns", _build_columns(cls))
+    return cls
 
 
-# ---------------------------------------------------------------------------
-# Serialization
-# ---------------------------------------------------------------------------
-
-
-def _serialize_value(value: Any, *, by_alias: bool) -> Any:
-    if isinstance(value, Schema):
-        return value.to_dict(by_alias=by_alias)
-    if isinstance(value, list):
-        return [_serialize_value(item, by_alias=by_alias) for item in value]
-    if isinstance(value, tuple):
-        return tuple(_serialize_value(item, by_alias=by_alias) for item in value)
-    return value
-
-
-def _deserialize_value(annotation: Any, value: Any, *, by_alias: bool) -> Any:
-    if value is None:
-        return None
-
-    annotation = base_annotation(annotation)
-    origin = get_origin(annotation)
-
-    if isinstance(annotation, type) and issubclass(annotation, Schema):
-        if isinstance(value, annotation):
-            return value
-        if not isinstance(value, Mapping):
-            raise TypeError(
-                f"Expected mapping for nested {annotation.__name__}, got {type(value).__name__}"
+def _build_physical_plan(
+    cls: type[Model], rows: list[Any], *, top_level: bool = False
+) -> _PhysicalPlan:
+    logical = cls.__tp2_plan__
+    physical: list[_PhysicalField] = []
+    for item in logical.fields:
+        if item.kind in ("scalar", "dict"):
+            getter = (
+                _dict_getter(item.name)
+                if item.kind == "dict"
+                else lambda row, name=item.name: getattr(row, name)
             )
-        return annotation.from_dict(value, by_alias=by_alias)
-
-    if origin is list:
-        (item_type,) = get_args(annotation)
-        if not isinstance(value, list):
-            raise TypeError(f"Expected list, got {type(value).__name__}")
-        return [_deserialize_value(item_type, item, by_alias=by_alias) for item in value]
-
-    if origin is dict:
-        key_type, value_type = get_args(annotation)
-        if isinstance(value, Mapping):
-            return {
-                _deserialize_value(key_type, key, by_alias=by_alias): _deserialize_value(
-                    value_type,
-                    item,
-                    by_alias=by_alias,
+            physical.append(
+                _PhysicalField(
+                    item.alias,
+                    item.dtype,
+                    getter,
                 )
-                for key, item in value.items()
-            }
-        if not isinstance(value, list):
-            raise TypeError(f"Expected mapping entries, got {type(value).__name__}")
-
-        result: dict[Any, Any] = {}
-        for entry in value:
-            if not isinstance(entry, Mapping) or "key" not in entry or "value" not in entry:
-                raise TypeError("Expected dict entry with 'key' and 'value' fields")
-            key = _deserialize_value(key_type, entry["key"], by_alias=by_alias)
-            result[key] = _deserialize_value(
-                value_type,
-                entry["value"],
-                by_alias=by_alias,
             )
-        return result
-
-    return value
-
-
-# ---------------------------------------------------------------------------
-# Bound nested column construction
-# ---------------------------------------------------------------------------
-
-
-def _build_expr(root_alias: str, steps: tuple[tuple[str, str], ...]) -> pl.Expr:
-    def apply(expr: pl.Expr, remaining: tuple[tuple[str, str], ...]) -> pl.Expr:
-        if not remaining:
-            return expr
-
-        kind, alias = remaining[0]
-        tail = remaining[1:]
-
-        if kind == "struct":
-            return apply(expr.struct.field(alias), tail)
-
-        if kind == "list_item":
-            inner = apply(pl.element().struct.field(alias), tail)
-            return expr.list.eval(inner)
-
-        if kind == "list":
-            return expr.list.eval(apply(pl.element(), tail))
-
-        raise RuntimeError(f"Unknown column path step: {kind!r}")
-
-    return apply(pl.col(root_alias), steps)
-
-
-def _build_column(
-    info: _FieldBase,
-    *,
-    root_alias: str,
-    steps: tuple[tuple[str, str], ...],
-    python_path: tuple[str, ...],
-    polars_path: tuple[str, ...],
-    list_depth: int = 0,
-    root_wrappers: int = 0,
-) -> Column[Any]:
-    kwargs = {
-        "name": info.name,
-        "alias": info.alias,
-        "dtype": info.polars_dtype,
-        "root_alias": root_alias,
-        "steps": steps,
-        "python_path": python_path,
-        "polars_path": polars_path,
-        "list_depth": list_depth,
-        "field_info": info,
-    }
-
-    if isinstance(info, Struct):
-        nested_schema = _require_schema_type(info.python_type, info)
-        children = _build_bound_children(
-            nested_schema,
-            info=info,
-            root_alias=root_alias,
-            parent_steps=steps,
-            edge_kind="struct",
-            parent_python_path=python_path,
-            parent_polars_path=polars_path,
-            list_depth=list_depth,
-            root_wrappers=root_wrappers,
-        )
-        return StructColumn(fields_proxy=_BoundColumnsProxy(children), **kwargs)
-
-    if isinstance(info, ListStruct):
-        nested_schema = _require_schema_type(info.python_type, info)
-        children = _build_bound_children(
-            nested_schema,
-            info=info,
-            root_alias=root_alias,
-            parent_steps=steps,
-            edge_kind="list_item",
-            parent_python_path=python_path + ("item",),
-            parent_polars_path=polars_path + ("[]",),
-            list_depth=list_depth,
-            root_wrappers=root_wrappers,
-        )
-        return ListStructColumn(item_proxy=_BoundColumnsProxy(children), **kwargs)
-
-    return Column(**kwargs)
-
-
-def _require_schema_type(value: Any, info: _FieldBase) -> type[Schema]:
-    value = base_annotation(value)
-    if not isinstance(value, type) or not issubclass(value, Schema):
-        raise TypeError(
-            f"{type(info).__name__}[...] for {info.name!r} requires a Schema subclass, "
-            f"got {value!r}"
-        )
-    return value
-
-
-def _build_bound_children(
-    schema_cls: type[Schema],
-    *,
-    info: Struct[Any] | ListStruct[Any],
-    root_alias: str,
-    parent_steps: tuple[tuple[str, str], ...],
-    edge_kind: str,
-    parent_python_path: tuple[str, ...],
-    parent_polars_path: tuple[str, ...],
-    list_depth: int,
-    root_wrappers: int,
-) -> dict[str, Column[Any]]:
-    result: dict[str, Column[Any]] = {}
-
-    for child in schema_cls.__schema_fields__.values():
-        if info.flat:
-            if parent_steps:
-                kind, alias = parent_steps[-1]
-                child_root = root_alias
-                child_steps = (
-                    *parent_steps[:-1],
-                    (kind, f"{alias}{info.flat_divider}{child.alias}"),
-                )
-                child_root_wrappers = 0
+            continue
+        assert item.nested is not None
+        nested_values = _nested_values(rows, item)
+        nested_plan = _build_physical_plan(item.nested, nested_values)
+        if not item.flat:
+            dtype = pl.Struct(nested_plan.schema)
+            if item.kind == "list_struct":
+                dtype = pl.List(dtype)
+                getter = _list_struct_getter(item.name, nested_plan)
             else:
-                child_root = f"{root_alias}{info.flat_divider}{child.alias}"
-                child_steps = ()
-                child_root_wrappers = list_depth + isinstance(info, ListStruct)
-            child_list_depth = list_depth + isinstance(info, ListStruct)
-        else:
-            child_root = root_alias
-            child_steps = (
-                parent_steps + (("list", ""),) * root_wrappers + ((edge_kind, child.alias),)
+                getter = _struct_getter(item.name, nested_plan)
+            physical.append(_PhysicalField(item.alias, dtype, getter))
+            continue
+        for index, child in enumerate(nested_plan.fields):
+            name = f"{item.alias}{item.flat_divider}{child.name}"
+            dtype = child.dtype if item.kind == "struct" else pl.List(child.dtype)
+            getter = _flat_getter(item, nested_plan, index)
+            physical.append(_PhysicalField(name, dtype, getter))
+
+    if logical.extras_name is not None:
+        extra_names = sorted(
+            {
+                key
+                for row in rows
+                for key in cast(Mapping[str, Any], getattr(row, logical.extras_name))
+            }
+        )
+        declared = {item.name for item in physical}
+        for name in extra_names:
+            _validate_alias(name)
+            if name in declared:
+                raise TypeError(f"Extra field conflicts with declared field {name!r}")
+            values = [getattr(row, logical.extras_name).get(name) for row in rows]
+            dtype = pl.Series(name, values).dtype
+            physical.append(
+                _PhysicalField(
+                    name,
+                    dtype,
+                    lambda row, field_name=name, extras_name=logical.extras_name: getattr(
+                        row, extras_name
+                    ).get(field_name),
+                )
             )
-            child_list_depth = list_depth + (edge_kind == "list_item")
-            child_root_wrappers = 0
-        result[child.name] = _build_column(
-            child,
-            root_alias=child_root,
-            steps=child_steps,
-            python_path=parent_python_path + (child.name,),
-            polars_path=parent_polars_path + (child.alias,),
-            list_depth=child_list_depth,
-            root_wrappers=child_root_wrappers,
+
+    physical_names: set[str] = set()
+    for item in physical:
+        if item.name in physical_names:
+            raise TypeError(f"Physical field name conflict for {item.name!r}")
+        physical_names.add(item.name)
+
+    row_type = None if top_level else _make_namedtuple(cls.__name__, physical)
+    return _PhysicalPlan(tuple(physical), row_type)
+
+
+def _make_namedtuple(name: str, physical: list[_PhysicalField]) -> type[tuple[Any, ...]]:
+    return cast(type[tuple[Any, ...]], namedtuple(f"_{name}Physical", [x.name for x in physical]))
+
+
+def _nested_values(rows: list[Any], item: _FieldPlan) -> list[Any]:
+    values = [getattr(row, item.name) for row in rows]
+    assert item.nested is not None
+    if item.kind == "struct":
+        invalid = next(
+            (value for value in values if value is not None and not isinstance(value, item.nested)),
+            None,
+        )
+        if invalid is not None:
+            raise TypeError(
+                f"Field {item.name!r} expected {item.nested.__name__}, got {type(invalid).__name__}"
+            )
+        return [value for value in values if value is not None]
+    for value in values:
+        if value is not None and (
+            not isinstance(value, list)
+            or any(not isinstance(child, item.nested) for child in value)
+        ):
+            raise TypeError(f"Field {item.name!r} must be a list of {item.nested.__name__}")
+    return [child for value in values if value is not None for child in value]
+
+
+def _struct_getter(name: str, plan: _PhysicalPlan) -> Callable[[Any], Any]:
+    def get(row: Any) -> Any:
+        value = getattr(row, name)
+        return None if value is None else plan.serialize(value)
+
+    return get
+
+
+def _dict_getter(name: str) -> Callable[[Any], Any]:
+    def get(row: Any) -> Any:
+        value = getattr(row, name)
+        if value is not None and not isinstance(value, Mapping):
+            raise TypeError(f"Field {name!r} must be a mapping")
+        return (
+            None if value is None else [_KeyValuePhysical(key, item) for key, item in value.items()]
         )
 
+    return get
+
+
+def _list_struct_getter(name: str, plan: _PhysicalPlan) -> Callable[[Any], Any]:
+    def get(row: Any) -> Any:
+        value = getattr(row, name)
+        return None if value is None else [plan.serialize(child) for child in value]
+
+    return get
+
+
+def _flat_getter(item: _FieldPlan, plan: _PhysicalPlan, index: int) -> Callable[[Any], Any]:
+    def get(row: Any) -> Any:
+        value = getattr(row, item.name)
+        if value is None:
+            return None
+        if item.kind == "struct":
+            return plan.serialize(value)[index]
+        return [plan.serialize(child)[index] for child in value]
+
+    return get
+
+
+def _build_columns(
+    cls: type[Model],
+    root: str | None = None,
+    steps: tuple[tuple[str, str], ...] = (),
+    container_kind: str = "struct",
+) -> _Columns:
+    values: dict[str, Any] = {}
+    for item in cls.__tp2_plan__.fields:
+        root_alias = root or item.alias
+        item_steps = steps + ((container_kind, item.alias),) if root is not None else ()
+        if item.kind == "struct" and not item.flat:
+            nested = _build_columns(
+                cast(type[Model], item.nested), root_alias, item_steps, "struct"
+            )
+            values[item.name] = StructColumn(
+                item.name, item.alias, None, root_alias, item_steps, nested
+            )
+        elif item.kind == "list_struct" and not item.flat:
+            nested = _build_columns(
+                cast(type[Model], item.nested), root_alias, item_steps, "list_struct"
+            )
+            values[item.name] = ListStructColumn(
+                item.name, item.alias, None, root_alias, item_steps, nested
+            )
+        elif item.flat:
+            nested = _build_flat_columns(
+                cast(type[Model], item.nested),
+                prefix=item.alias,
+                divider=item.flat_divider,
+                as_list=item.kind == "list_struct",
+            )
+            if item.kind == "struct":
+                values[item.name] = StructColumn(
+                    item.name, item.alias, None, item.alias, (), nested
+                )
+            else:
+                values[item.name] = ListStructColumn(
+                    item.name, item.alias, None, item.alias, (), nested
+                )
+        else:
+            values[item.name] = Column(item.name, item.alias, item.dtype, root_alias, item_steps)
+    return _Columns(values)
+
+
+def _build_flat_columns(cls: type[Model], *, prefix: str, divider: str, as_list: bool) -> _Columns:
+    values: dict[str, Any] = {}
+    for item in cls.__tp2_plan__.fields:
+        physical_name = f"{prefix}{divider}{item.alias}"
+        if item.kind == "struct" and not item.flat:
+            nested = _build_columns(cast(type[Model], item.nested), physical_name)
+            values[item.name] = StructColumn(item.name, item.alias, None, physical_name, (), nested)
+        elif item.kind == "list_struct" and not item.flat:
+            nested = _build_columns(cast(type[Model], item.nested), physical_name)
+            values[item.name] = ListStructColumn(
+                item.name, item.alias, None, physical_name, (), nested
+            )
+        elif item.flat:
+            values[item.name] = _build_flat_columns(
+                cast(type[Model], item.nested),
+                prefix=physical_name,
+                divider=item.flat_divider,
+                as_list=as_list or item.kind == "list_struct",
+            )
+        else:
+            dtype = pl.List(item.dtype) if as_list else item.dtype
+            values[item.name] = Column(item.name, item.alias, dtype, physical_name, ())
+    return _Columns(values)
+
+
+def _unflatten(cls: type[Model], data: Mapping[str, Any]) -> dict[str, Any]:
+    result = dict(data)
+    for item in cls.__tp2_plan__.fields:
+        if not item.flat:
+            continue
+        prefix = f"{item.alias}{item.flat_divider}"
+        selected = {
+            key[len(prefix) :]: result.pop(key) for key in tuple(result) if key.startswith(prefix)
+        }
+        if item.kind == "struct":
+            result[item.alias] = (
+                None if selected and all(value is None for value in selected.values()) else selected
+            )
+        else:
+            lengths = {len(value) for value in selected.values() if value is not None}
+            if len(lengths) > 1:
+                raise TypeError(
+                    f"Flat ListStruct columns for {item.alias!r} have different lengths"
+                )
+            result[item.alias] = (
+                None
+                if not lengths
+                else [
+                    {name: value[index] for name, value in selected.items()}
+                    for index in range(next(iter(lengths)))
+                ]
+            )
     return result
+
+
+def _base_annotation(annotation: Any) -> Any:
+    while get_origin(annotation) is Annotated:
+        annotation = get_args(annotation)[0]
+    origin = get_origin(annotation)
+    if origin in (Union, UnionType):
+        args = [item for item in get_args(annotation) if item is not type(None)]
+        if len(args) == 1:
+            return _base_annotation(args[0])
+    return annotation
+
+
+def _validate_alias(alias: str) -> None:
+    if not alias.isidentifier() or keyword.iskeyword(alias) or alias.startswith("_"):
+        raise TypeError(f"Polars name {alias!r} cannot be represented by NamedTuple")
+
+
+def _require_model(cls: type[Model]) -> None:
+    if not hasattr(cls, "__tp2_plan__"):
+        raise TypeError(f"Nested model {cls.__name__} must be decorated with @model")
+
+
+def _apply_column_steps(expr: pl.Expr, steps: tuple[tuple[str, str], ...]) -> pl.Expr:
+    if not steps:
+        return expr
+    (kind, name), remaining = steps[0], steps[1:]
+    if kind == "struct":
+        return _apply_column_steps(expr.struct.field(name), remaining)
+    if kind == "list_struct":
+        nested = _apply_column_steps(pl.element().struct.field(name), remaining)
+        return expr.list.eval(nested)
+    raise RuntimeError(f"Unknown column path step: {kind}")
+
+
+def _model_has_extras(cls: type[Model]) -> bool:
+    plan = cls.__tp2_plan__
+    if plan.extras_name is not None:
+        return True
+    return any(item.nested is not None and _model_has_extras(item.nested) for item in plan.fields)

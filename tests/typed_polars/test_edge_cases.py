@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 import polars as pl
-import polars_list_math.typed_polars2 as tp
+import polars_list_math.typed_polars as tp
 import pytest
 
 

@@ -6,11 +6,11 @@ from time import perf_counter
 from typing import Any, NamedTuple
 
 import polars as pl
-import polars_list_math.typed_polars2 as tp
+import polars_list_math.typed_polars as tp
 import pytest
 
 DEFAULT_ROW_COUNT = 10_000
-ROW_COUNT = int(os.environ.get("POLARS_TYPED2_ROWS", DEFAULT_ROW_COUNT))
+ROW_COUNT = int(os.environ.get("POLARS_TYPED_ROWS", DEFAULT_ROW_COUNT))
 
 
 @tp.model
@@ -217,7 +217,7 @@ def build_ready_namedtuple(rows: list[ReadyNamedTupleRow]) -> pl.DataFrame:
 
 
 CASES = (
-    ("typed_polars2", make_typed_row, build_typed),
+    ("typed_polars", make_typed_row, build_typed),
     ("ready_nested_namedtuple", make_namedtuple_row, build_ready_namedtuple),
 )
 

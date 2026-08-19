@@ -1,6 +1,6 @@
-"""Flatten nested typed_polars2 models into physical Polars columns."""
+"""Flatten nested typed Polars models into physical Polars columns."""
 
-import polars_list_math.typed_polars2 as tp
+import polars_list_math.typed_polars as tp
 
 
 @tp.model

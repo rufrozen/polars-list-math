@@ -85,9 +85,9 @@ def annotation_to_dtype(annotation: Any) -> Any:
         )
 
     # Local import avoids a module cycle while resolving nested schemas.
-    from .model import Schema
+    from .model import Model
 
-    if isinstance(annotation, type) and issubclass(annotation, Schema):
+    if isinstance(annotation, type) and issubclass(annotation, Model):
         return pl.Struct(annotation.polars_schema())
 
     try:
