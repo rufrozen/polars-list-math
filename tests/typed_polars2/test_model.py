@@ -62,7 +62,8 @@ def test_nested_models_use_exact_schema_and_round_trip() -> None:
         }
     )
     assert Row.from_frame(frame) == row
-    assert row.to_dict(by_alias=True)["completion"]["queryPrefix"] == "по"
+    assert row.to_dict(by_polars_name=True)["completion"]["queryPrefix"] == "по"
+    assert Row.from_dict(row.to_dict(by_polars_name=True), by_polars_name=True) == row
 
 
 def test_many_rows_are_built_from_physical_tuples() -> None:

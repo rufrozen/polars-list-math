@@ -22,9 +22,16 @@ class Row(tp.Model):
     extra: tp.Extras = tp.extras(default_factory=dict)
 
 
-frame = Row.to_frame_many(
-    [Row(request_id="one", items=[Item("value", "corrected")])]
-)
+row = Row(request_id="one", items=[Item("value", "corrected")])
+frame = Row.to_frame_many([row])
+```
+
+Dictionary conversion uses Python attribute names by default. Pass
+`by_polars_name=True` explicitly when reading or writing physical Polars names:
+
+```python
+data = row.to_dict(by_polars_name=True)
+row = Row.from_dict(data, by_polars_name=True)
 ```
 
 All physical names must be valid non-keyword Python identifiers and cannot
