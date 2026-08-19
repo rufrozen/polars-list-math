@@ -143,6 +143,21 @@ More complete, runnable examples are available in the
 [`examples`](https://github.com/rufrozen/polars-list-math/tree/main/examples)
 directory.
 
+## Performance experiments
+
+Reproducible performance experiments live in the [`performance`](performance)
+directory. Each experiment has its own README with the tested scenario, run
+instructions, environment, and recorded results.
+
+The current
+[`dataframe_construction`](performance/dataframe_construction) experiment
+compares construction of 30-column Polars DataFrames from a regular dataclass,
+a slotted dataclass, and a named tuple, including nested structs and lists.
+
+```bash
+uv run pytest performance/dataframe_construction -v -s
+```
+
 ## Development
 
 ```bash

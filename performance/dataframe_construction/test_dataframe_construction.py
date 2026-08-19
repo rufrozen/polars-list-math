@@ -177,8 +177,9 @@ def assert_frame(frame: pl.DataFrame, expected_height: int) -> None:
     assert frame.shape == (expected_height, 30)
     assert frame.columns == EXPECTED_COLUMNS
     assert isinstance(frame.schema["address"], pl.Struct)
-    assert frame.schema["events"].base_type() == pl.List
-    assert isinstance(frame.schema["events"].inner, pl.Struct)
+    events_dtype = frame.schema["events"]
+    assert isinstance(events_dtype, pl.List)
+    assert isinstance(events_dtype.inner, pl.Struct)
     assert frame.schema["tags"] == pl.List(pl.String)
     assert frame["row_id"].to_list() == list(range(expected_height))
 
