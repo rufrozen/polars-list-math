@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from ._dfs_to_lazy_df import dfs_to_lazy_df
 from ._expected_value_of_game import expected_value_of_game
 from ._json_array_values import install as _install_json_array_values
 from ._json_array_values import json_array_values
@@ -23,6 +24,7 @@ from ._url_query_encode import url_query_encode
 
 __all__ = [
     "install",
+    "dfs_to_lazy_df",
     "expected_value_of_game",
     "json_array_values",
     "json_object_items",

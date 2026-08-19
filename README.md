@@ -51,6 +51,7 @@ Pylance, and other type checkers:
 | `json_array_values(expr, strict=False)` | Convert a JSON array to `list[str]` | [JSON array values](https://github.com/rufrozen/polars-list-math/blob/main/docs/json_array_values.md) |
 | `url_query_encode(expr, doseq=False)` | Encode a Struct or key/value list as a URL query string | [URL query encoding](https://github.com/rufrozen/polars-list-math/blob/main/docs/url_query_encode.md) |
 | `url_build(...)` | Assemble a URL from optional component expressions | [URL building](https://github.com/rufrozen/polars-list-math/blob/main/docs/url_build.md) |
+| `dfs_to_lazy_df(...)` | Expose DataFrame batches as a pushdown-aware LazyFrame source | [Examples](https://github.com/rufrozen/polars-list-math/tree/main/examples) |
 
 The Python helper `py_list_similarity(...)` computes weighted similarity for
 plain Python sequences.
