@@ -198,6 +198,91 @@ def test_strict_frame_schema_rejects_missing_extra_and_wrong_dtype() -> None:
             Child.from_frame(frame, strict_schema=True)
 
 
+def test_non_strict_frame_ignores_unknown_top_level_and_struct_fields() -> None:
+    @tp.model
+    class Parent(tp.Model):
+        child: Child
+
+    frame = pl.DataFrame(
+        {
+            "child": [{"value": 1, "unknownNested": "ignored"}],
+            "unknownTop": [True],
+        }
+    )
+
+    assert Parent.from_frame(frame, strict_schema=False) == Parent(Child(1))
+    with pytest.raises(TypeError, match="Unexpected DataFrame schema"):
+        Parent.from_frame(frame, strict_schema=True)
+
+
+def test_non_strict_frame_ignores_unknown_list_struct_fields() -> None:
+    @tp.model
+    class Parent(tp.Model):
+        children: list[Child]
+
+    frame = pl.DataFrame(
+        {
+            "children": [
+                [
+                    {"value": 1, "unknown": "first"},
+                    {"value": 2, "unknown": "second"},
+                ]
+            ]
+        }
+    )
+
+    assert Parent.from_frame(frame) == Parent([Child(1), Child(2)])
+
+
+def test_non_strict_frame_ignores_unknown_flat_struct_columns() -> None:
+    @tp.model
+    class Pair(tp.Model):
+        left: int
+        right: int
+
+    @tp.model
+    class FlatRow(tp.Model):
+        pair: Pair = tp.field(flat=True)
+        pairs: list[Pair] = tp.field(flat=True)
+
+    frame = (
+        FlatRow(Pair(1, 2), [Pair(3, 4)])
+        .to_frame()
+        .with_columns(
+            pl.lit("top").alias("unknownTop"),
+            pl.lit("nested").alias("pair:unknown"),
+            pl.lit(["nested-list"]).alias("pairs:unknown"),
+        )
+    )
+
+    assert FlatRow.from_frame(frame, strict_schema=False) == FlatRow(Pair(1, 2), [Pair(3, 4)])
+    with pytest.raises(TypeError, match="Unexpected DataFrame schema"):
+        FlatRow.from_frame(frame, strict_schema=True)
+
+
+def test_non_strict_frame_still_captures_unknown_values_when_extras_exist() -> None:
+    @tp.model
+    class FlexibleChild(tp.Model):
+        value: int
+        extra: tp.Extras = tp.extras(default_factory=dict)
+
+    @tp.model
+    class FlexibleParent(tp.Model):
+        child: FlexibleChild
+        extra: tp.Extras = tp.extras(default_factory=dict)
+
+    frame = pl.DataFrame(
+        {
+            "child": [{"value": 1, "nestedExtra": 2}],
+            "topExtra": [3],
+        }
+    )
+    row = FlexibleParent.from_frame(frame, strict_schema=False)
+
+    assert row.child.extra == {"nestedExtra": 2}
+    assert row.extra == {"topExtra": 3}
+
+
 def test_strict_schema_reports_dynamic_extras_as_unsupported() -> None:
     @tp.model
     class Flexible(tp.Model):

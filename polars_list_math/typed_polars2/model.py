@@ -167,7 +167,7 @@ class Model:
 
     @classmethod
     def polars_schema(cls) -> pl.Schema:
-        return _build_physical_plan(cls, []).schema
+        return _build_physical_plan(cls, [], top_level=True).schema
 
     @classmethod
     def to_frame_many(cls, rows: Iterable[Self], *, strict: bool = True) -> pl.DataFrame:
@@ -196,7 +196,13 @@ class Model:
         return result
 
     @classmethod
-    def from_dict(cls, data: Mapping[str, Any], *, by_polars_name: bool = False) -> Self:
+    def from_dict(
+        cls,
+        data: Mapping[str, Any],
+        *,
+        by_polars_name: bool = False,
+        _ignore_unknown: bool = False,
+    ) -> Self:
         """Build a model from Python or physical Polars field names."""
         plan = cls.__tp2_plan__
         remaining = dict(data)
@@ -210,7 +216,11 @@ class Model:
                 assert item.nested is not None
                 if not isinstance(value, Mapping):
                     raise TypeError(f"Field {item.name!r} must be a mapping")
-                value = item.nested.from_dict(value, by_polars_name=by_polars_name)
+                value = item.nested.from_dict(
+                    value,
+                    by_polars_name=by_polars_name,
+                    _ignore_unknown=_ignore_unknown,
+                )
             elif item.kind == "list_struct" and value is not None:
                 assert item.nested is not None
                 if not isinstance(value, list) or not all(
@@ -218,7 +228,12 @@ class Model:
                 ):
                     raise TypeError(f"Field {item.name!r} must be a list of mappings")
                 value = [
-                    item.nested.from_dict(child, by_polars_name=by_polars_name) for child in value
+                    item.nested.from_dict(
+                        child,
+                        by_polars_name=by_polars_name,
+                        _ignore_unknown=_ignore_unknown,
+                    )
+                    for child in value
                 ]
             elif item.kind == "dict" and isinstance(value, list):
                 value = {entry["key"]: entry["value"] for entry in value}
@@ -227,7 +242,7 @@ class Model:
             kwargs[plan.extras_name] = {
                 name: value for name, value in remaining.items() if value is not None
             }
-        elif remaining:
+        elif remaining and not _ignore_unknown:
             raise TypeError(f"Unexpected key(s) for {cls.__name__}: {', '.join(sorted(remaining))}")
         return cls(**kwargs)
 
@@ -236,7 +251,11 @@ class Model:
         if strict_schema:
             cls.assert_frame_schema(frame)
         for row in frame.iter_rows(named=True):
-            yield cls.from_dict(_unflatten(cls, row), by_polars_name=True)
+            yield cls.from_dict(
+                _unflatten(cls, row),
+                by_polars_name=True,
+                _ignore_unknown=not strict_schema,
+            )
 
     @classmethod
     def from_frame(cls, frame: pl.DataFrame, *, strict_schema: bool = False) -> Self:
