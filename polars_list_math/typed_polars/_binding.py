@@ -7,6 +7,7 @@ from typing import Any, Protocol, cast
 
 import polars as pl
 
+from ._const import MODEL_BUILDER_ATTRIBUTE
 from ._plans import PhysicalPlan
 from .context import Context
 
@@ -76,7 +77,7 @@ class BuilderProtocol[T](Protocol):
 
 def get_builder[T](model: type[T], *, schema: type[Any]) -> BuilderProtocol[T]:
     """Return the model builder and verify its schema identity."""
-    builder = model.__dict__.get("__tp_builder__")
+    builder = model.__dict__.get(MODEL_BUILDER_ATTRIBUTE)
     if builder is None:
         raise TypeError(f"{model.__name__} has no builder; decorate it with @model(schema=...)")
     if builder.schema is not schema:

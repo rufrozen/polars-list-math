@@ -1,4 +1,4 @@
-"""Tuple-oriented typed Polars models based on schema-bound dataclasses."""
+"""Tuple-oriented typed Polars models based on schema-bound Python records."""
 
 from .builder import Builder
 from .context import Context, ContextFieldProtocol

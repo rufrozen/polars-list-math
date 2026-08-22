@@ -1,8 +1,9 @@
 # Typed Polars models
 
 `polars_list_math.typed_polars` separates Python data models from Polars storage
-metadata. Models contain only ordinary dataclass annotations and defaults; a
-`Schema` is the single source of physical column names and Polars dtypes.
+metadata. Models contain ordinary dataclass or typed `NamedTuple` annotations
+and defaults; a `Schema` is the single source of physical column names and
+Polars dtypes.
 
 ```python
 from dataclasses import dataclass, field
@@ -38,10 +39,32 @@ frame = RowSchema.to_frame(row)
 assert RowSchema.from_frame(Row, frame) == row
 ```
 
-Nested models are ordinary dataclasses and do not need a library base class or
-decorator. The root dataclass must use `@tp.model(schema=...)`; this recursively
-validates the model and builds the cached physical serialization plan. Defaults
-and factories are declared with `dataclasses.field`.
+Nested models are ordinary dataclasses or typed `NamedTuple` classes and do not
+need a library base class or decorator. The root record must use
+`@tp.model(schema=...)`; this recursively validates the model and builds the
+cached physical serialization plan. Dataclass defaults and factories are
+declared with `dataclasses.field`.
+
+Typed `NamedTuple` works at both root and nested levels and can be mixed with
+dataclasses:
+
+```python
+from typing import NamedTuple
+
+
+class TupleItem(NamedTuple):
+    value: str
+    score: float
+
+
+@tp.model(schema=RowSchema)
+class TupleRow(NamedTuple):
+    request_id: str
+    items: list[TupleItem]
+```
+
+`from_frame()` reconstructs the declared record type. NamedTuple defaults are
+read from `_field_defaults`; an untyped `collections.namedtuple` is rejected.
 
 The decorator creates a `tp.Builder` for the model/schema pair and stores it on
 the root model. It owns the recursive validation result and cached physical
@@ -51,9 +74,10 @@ supplied model (or to the row passed to `to_frame`).
 
 By default, model and schema fields are matched by intersection. Schema-only
 fields are ignored by model conversion. Model-only fields are also excluded
-from the DataFrame and must declare a dataclass `default` or `default_factory`
-so deserialization can construct the model. Matching fields still require a
-compatible Python type and scalar/Struct/ListStruct shape.
+from the DataFrame and must declare a dataclass default/default factory or a
+NamedTuple field default so deserialization can construct the model. Matching
+fields still require a compatible Python type and scalar/Struct/ListStruct
+shape.
 
 Use `@tp.model(schema=RowSchema, strict=True)` to require exact field sets at
 every nested level. This structural `strict` option is independent of the
@@ -119,7 +143,7 @@ nested schema is reused; path bindings can override it independently.
 
 ## Flat storage
 
-Flattening is a storage property of the schema, not the dataclass model.
+Flattening is a storage property of the schema, not the Python model.
 `FlatStruct` and `FlatListStruct` expand nested values into sibling physical
 columns; `divider` controls the physical column separator:
 
@@ -132,4 +156,4 @@ class FlatRowSchema(tp.Schema):
 This produces scalar columns such as `item__value` and, with the default `_`
 divider, parallel list columns such as `history_value`. Schema expressions
 point to those physical columns, and model DataFrame conversion transparently
-flattens and reconstructs the nested dataclass values.
+flattens and reconstructs nested dataclass or NamedTuple values.

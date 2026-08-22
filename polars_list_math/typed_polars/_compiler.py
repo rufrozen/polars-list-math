@@ -4,50 +4,49 @@ from __future__ import annotations
 
 from collections import namedtuple
 from collections.abc import Callable, Mapping
-from dataclasses import MISSING, fields, is_dataclass
 from types import UnionType
-from typing import Annotated, Any, TypeAliasType, Union, cast, get_args, get_origin, get_type_hints
+from typing import Annotated, Any, TypeAliasType, Union, cast, get_args, get_origin
 
 import polars as pl
 
+from ._const import MODEL_PLAN_ATTRIBUTE, MODEL_SCHEMA_ATTRIBUTE, MODEL_SCHEMA_STRICT_ATTRIBUTE
 from ._plans import FieldPlan, ModelPlan, PhysicalField, PhysicalPlan
+from ._records import is_named_tuple, is_record, record_fields
 from .context import Context, context_keys
 from .schema import FlatDict, ListStruct, Schema, Struct
 
 
 def compile_model[T: type](cls: T, schema: type[Schema], *, strict: bool) -> T:
-    """Recursively validate a dataclass tree and attach its logical plans."""
-    if not is_dataclass(cls):
-        raise TypeError(f"{cls.__name__} must be a dataclass")
+    """Recursively validate a record tree and attach its logical plans."""
+    if not is_record(cls):
+        raise TypeError(f"{cls.__name__} must be a dataclass or typed NamedTuple")
 
-    hints = get_type_hints(cls, include_extras=True)
     plans: list[FieldPlan] = []
-    for item in fields(cast(Any, cls)):
-        annotation = hints[item.name]
+    for item in record_fields(cls):
+        annotation = item.annotation
         base = _base_annotation(annotation)
         origin = get_origin(base)
         nested: type[Any] | None = None
         kind = "scalar"
         column = schema.fields().get(item.name)
-        if isinstance(base, type) and is_dataclass(base):
+        if isinstance(base, type) and (is_record(base) or is_named_tuple(base)):
             if column is not None and isinstance(column, Struct):
                 _prepare_model(base, column.schema, strict=strict)
             nested, kind = base, "struct"
         elif origin is list:
             (inner,) = get_args(base)
             inner = _base_annotation(inner)
-            if isinstance(inner, type) and is_dataclass(inner):
+            if isinstance(inner, type) and (is_record(inner) or is_named_tuple(inner)):
                 if column is not None and isinstance(column, ListStruct):
                     _prepare_model(inner, column.schema, strict=strict)
                 nested, kind = inner, "list_struct"
         elif origin is dict:
             kind = "flat_dict" if isinstance(column, FlatDict) else "dict"
-        has_default = item.default is not MISSING or item.default_factory is not MISSING
-        plans.append(FieldPlan(item.name, annotation, kind, nested, has_default))
+        plans.append(FieldPlan(item.name, annotation, kind, nested, item.has_default))
 
-    type.__setattr__(cls, "__tp2_plan__", ModelPlan(cls, tuple(plans)))
-    type.__setattr__(cls, "__tp_schema__", schema)
-    type.__setattr__(cls, "__tp_schema_strict__", strict)
+    type.__setattr__(cls, MODEL_PLAN_ATTRIBUTE, ModelPlan(cls, tuple(plans)))
+    type.__setattr__(cls, MODEL_SCHEMA_ATTRIBUTE, schema)
+    type.__setattr__(cls, MODEL_SCHEMA_STRICT_ATTRIBUTE, strict)
     validate_model_schema(cls, schema, strict=strict)
     return cast(T, cls)
 
@@ -56,7 +55,7 @@ def validate_model_schema(
     model_cls: type[Any], schema: type[Schema], *, strict: bool = False
 ) -> None:
     """Validate compatible model/schema fields recursively."""
-    plan = getattr(model_cls, "__tp2_plan__", None)
+    plan = getattr(model_cls, MODEL_PLAN_ATTRIBUTE, None)
     if plan is None:
         raise TypeError(f"{model_cls!r} is not a compiled typed Polars model")
 
@@ -111,7 +110,7 @@ def build_physical_plan(
     top_level: bool = False,
 ) -> PhysicalPlan:
     """Compile the cached tuple-oriented physical serialization plan."""
-    logical = cls.__tp2_plan__
+    logical = getattr(cls, MODEL_PLAN_ATTRIBUTE)
     physical: list[PhysicalField] = []
     for item in logical.fields:
         column = schema.fields().get(item.name)
@@ -232,12 +231,12 @@ def _flat_getter(item: FieldPlan, plan: PhysicalPlan, index: int) -> Callable[[A
 
 
 def _prepare_model[T: type](cls: T, schema: type[Schema], *, strict: bool) -> T:
-    if not is_dataclass(cls):
-        raise TypeError(f"{cls.__name__} must be a dataclass")
+    if not is_record(cls):
+        raise TypeError(f"{cls.__name__} must be a dataclass or typed NamedTuple")
     if (
-        cls.__dict__.get("__tp_schema__") is schema
-        and cls.__dict__.get("__tp_schema_strict__") is strict
-        and "__tp2_plan__" in cls.__dict__
+        cls.__dict__.get(MODEL_SCHEMA_ATTRIBUTE) is schema
+        and cls.__dict__.get(MODEL_SCHEMA_STRICT_ATTRIBUTE) is strict
+        and MODEL_PLAN_ATTRIBUTE in cls.__dict__
     ):
         return cast(T, cls)
     return cast(T, compile_model(cls, schema, strict=strict))

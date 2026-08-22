@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
+from typing import NamedTuple
 
 import polars_list_math.typed_polars as tp
 
@@ -47,7 +48,7 @@ class AllTypesSchema(tp.Schema):
     duration_us = tp.Column[tp.DurationUs]()
     duration_ns = tp.Column[tp.DurationNs]()
 
-    # Nested dataclass, nullable, and container types.
+    # Nested dataclass/NamedTuple, nullable, and container types.
     profile = tp.Struct[ProfileSchema]()
     optional_text = tp.Column[str | None](polars_name="optionalText")
     tags = tp.Column[list[str]]()
@@ -62,8 +63,7 @@ class Profile:
     age: int
 
 
-@dataclass
-class Suggestion:
+class Suggestion(NamedTuple):
     value: str
     score: float
 

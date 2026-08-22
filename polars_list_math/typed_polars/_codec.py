@@ -8,6 +8,7 @@ from typing import Any, cast
 import polars as pl
 
 from ._binding import get_builder
+from ._const import MODEL_PLAN_ATTRIBUTE, MODEL_SCHEMA_ATTRIBUTE
 from ._plans import PhysicalPlan
 from .context import Context, context_keys
 from .schema import FlatDict, ListStruct, Schema, Struct
@@ -58,7 +59,7 @@ def to_dict(
     _context_path: tuple[object, ...] = (),
 ) -> dict[str, Any]:
     cls = type(value)
-    plan = cls.__tp2_plan__
+    plan = getattr(cls, MODEL_PLAN_ATTRIBUTE)
     schema = require_schema(cls) if by_polars_name else None
     result: dict[str, Any] = {}
     for item in plan.fields:
@@ -111,7 +112,7 @@ def from_dict(
     by_polars_name: bool,
     ignore_unknown: bool,
 ) -> Any:
-    plan = cls.__tp2_plan__
+    plan = getattr(cls, MODEL_PLAN_ATTRIBUTE)
     schema = require_schema(cls)
     remaining = unflatten(cls, schema, data) if by_polars_name else dict(data)
     kwargs: dict[str, Any] = {}
@@ -157,7 +158,7 @@ def from_dict(
 
 def unflatten(cls: type[Any], schema: type[Schema], data: Mapping[str, Any]) -> dict[str, Any]:
     result = dict(data)
-    for item in cls.__tp2_plan__.fields:
+    for item in getattr(cls, MODEL_PLAN_ATTRIBUTE).fields:
         column = schema.fields().get(item.name)
         if column is None:
             continue
@@ -200,7 +201,7 @@ def unflatten(cls: type[Any], schema: type[Schema], data: Mapping[str, Any]) -> 
 
 
 def require_schema(cls: type[Any]) -> type[Schema]:
-    schema = cls.__tp_schema__
+    schema = getattr(cls, MODEL_SCHEMA_ATTRIBUTE)
     if schema is None:
         raise TypeError(
             f"{cls.__name__} has no schema; DataFrame serialization requires @model(schema=...)"
@@ -234,7 +235,7 @@ def validate_row(
     if type(row) is not cls:
         raise TypeError(f"Expected {cls.__name__}, got {type(row).__name__}")
     schema = require_schema(cls)
-    for item in cls.__tp2_plan__.fields:
+    for item in getattr(cls, MODEL_PLAN_ATTRIBUTE).fields:
         if item.kind == "flat_dict":
             column = schema.fields()[item.name]
             assert isinstance(column, FlatDict)
@@ -306,7 +307,7 @@ def _infer_context(
     context: Context,
     context_path: tuple[object, ...],
 ) -> None:
-    for item in cls.__tp2_plan__.fields:
+    for item in getattr(cls, MODEL_PLAN_ATTRIBUTE).fields:
         column = schema.fields().get(item.name)
         if column is None:
             continue

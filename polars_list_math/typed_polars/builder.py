@@ -17,6 +17,7 @@ from ._codec import (
     to_frame_many,
 )
 from ._compiler import build_physical_plan, compile_model
+from ._const import MODEL_BUILDER_ATTRIBUTE
 from ._plans import PhysicalPlan
 from .context import Context, context_signature
 from .schema import Schema
@@ -46,7 +47,7 @@ class Builder[T](BuilderProtocol[T]):
             top_level=True,
         )
         self._physical_plans = {context_signature(None): self.physical_plan}
-        type.__setattr__(self.model, "__tp_builder__", self)
+        type.__setattr__(self.model, MODEL_BUILDER_ATTRIBUTE, self)
 
     @classmethod
     def for_model(
