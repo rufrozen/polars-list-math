@@ -21,8 +21,8 @@ Each file is a standalone example of one part of `polars-list-math`:
   expressions.
 - [`typed_polars.py`](typed_polars.py) exercises every supported Python type,
   explicit dtype alias, container, and nested schema, including round-trip;
-- [`typed_polars_flat.py`](typed_polars_flat.py) declares flattened Struct and
-  runtime `FlatDict` storage in the typed schema;
+- [`typed_polars_flat.py`](typed_polars_flat.py) demonstrates `FlatStruct`,
+  `FlatListStruct`, and runtime `FlatDict` storage;
 
 Install the project, then run an example from the repository root:
 
