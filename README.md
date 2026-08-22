@@ -3,6 +3,8 @@
 `polars-list-math` is a Python/Rust package with list, JSON, and URL expression
 helpers for Polars.
 
+Release notes and upgrade guidance are recorded in [CHANGELOG.md](CHANGELOG.md).
+
 Import the package once to register extra methods on `Expr.list` and `Expr.str`:
 
 ```python

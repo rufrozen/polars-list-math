@@ -105,6 +105,8 @@ appropriate, and add native and fallback tests.
 - `tests/` contains the regular pytest suite. Feature tests live in matching
   `test_<feature>.py` files; typed Polars tests live under `tests/typed_polars/`.
 - `docs/` contains feature guides and publishing instructions.
+- `CHANGELOG.md` records release notes, release status, and upgrade guidance;
+  update it when preparing a release.
 - `examples/` contains standalone runnable examples indexed by
   `examples/README.md`.
 - `performance/` contains isolated pytest performance experiments. Every

@@ -21,7 +21,8 @@ publisher. No API token is needed in GitHub.
 
 ## Release checklist
 
-1. Update the version in `pyproject.toml` and `rust/Cargo.toml`.
+1. Update `CHANGELOG.md` and the version in `pyproject.toml` and
+   `rust/Cargo.toml`. Regenerate both lock files when necessary.
 2. Run the local checks:
 
    ```bash
@@ -35,8 +36,8 @@ publisher. No API token is needed in GitHub.
 5. Create and push a version tag:
 
    ```bash
-   git tag v0.1.1
-   git push origin v0.1.1
+   git tag vX.Y.Z
+   git push origin vX.Y.Z
    ```
 
 6. Watch the `Publish` workflow. It should upload the final files from the
