@@ -11,7 +11,8 @@ from typing import Annotated, Any, TypeAliasType, Union, cast, get_args, get_ori
 import polars as pl
 
 from ._plans import FieldPlan, ModelPlan, PhysicalField, PhysicalPlan
-from .schema import ListStruct, Schema, Struct
+from .context import Context, context_keys
+from .schema import FlatDict, ListStruct, Schema, Struct
 
 
 def compile_model[T: type](cls: T, schema: type[Schema], *, strict: bool) -> T:
@@ -40,7 +41,7 @@ def compile_model[T: type](cls: T, schema: type[Schema], *, strict: bool) -> T:
                     _prepare_model(inner, column.schema, strict=strict)
                 nested, kind = inner, "list_struct"
         elif origin is dict:
-            kind = "dict"
+            kind = "flat_dict" if isinstance(column, FlatDict) else "dict"
         has_default = item.default is not MISSING or item.default_factory is not MISSING
         plans.append(FieldPlan(item.name, annotation, kind, nested, has_default))
 
@@ -102,7 +103,12 @@ def validate_model_schema(
 
 
 def build_physical_plan(
-    cls: type[Any], schema: type[Schema], *, top_level: bool = False
+    cls: type[Any],
+    schema: type[Schema],
+    *,
+    context: Context | None = None,
+    context_path: tuple[object, ...] = (),
+    top_level: bool = False,
 ) -> PhysicalPlan:
     """Compile the cached tuple-oriented physical serialization plan."""
     logical = cls.__tp2_plan__
@@ -110,6 +116,21 @@ def build_physical_plan(
     for item in logical.fields:
         column = schema.fields().get(item.name)
         if column is None:
+            continue
+        if item.kind == "flat_dict":
+            assert isinstance(column, FlatDict)
+            for key in context_keys(
+                context,
+                column,
+                context_path + (column,),
+            ):
+                physical.append(
+                    PhysicalField(
+                        column.physical_name(key),
+                        column.dtype,
+                        _flat_dict_getter(item.name, key),
+                    )
+                )
             continue
         if item.kind in ("scalar", "dict"):
             getter = (
@@ -122,10 +143,15 @@ def build_physical_plan(
 
         assert item.nested is not None
         nested_schema = cast(Any, column).schema
-        nested_plan = build_physical_plan(item.nested, nested_schema)
+        nested_plan = build_physical_plan(
+            item.nested,
+            nested_schema,
+            context=context,
+            context_path=context_path + (column,),
+        )
         if cast(Any, column).flat:
             for index, child in enumerate(nested_plan.fields):
-                name = f"{column.polars_name}{cast(Any, column).flat_divider}{child.name}"
+                name = f"{column.polars_name}{cast(Any, column).divider}{child.name}"
                 dtype = child.dtype if item.kind == "struct" else pl.List(child.dtype)
                 physical.append(PhysicalField(name, dtype, _flat_getter(item, nested_plan, index)))
             continue
@@ -169,6 +195,18 @@ def _dict_getter(name: str) -> Callable[[Any], Any]:
         return (
             None if value is None else [_KeyValuePhysical(key, item) for key, item in value.items()]
         )
+
+    return get
+
+
+def _flat_dict_getter(name: str, key: str) -> Callable[[Any], Any]:
+    def get(row: Any) -> Any:
+        value = getattr(row, name)
+        if value is None:
+            return None
+        if not isinstance(value, Mapping):
+            raise TypeError(f"Field {name!r} must be a mapping")
+        return value.get(key)
 
     return get
 

@@ -15,6 +15,7 @@ ignores schema-only fields, and requires defaults for model-only fields. Pass
 The implementation has an acyclic module graph and no function-local imports:
 
 - `_plans.py` contains immutable logical and physical cache structures;
+- `context.py` stores runtime `FlatDict` key bindings;
 - `_binding.py` resolves builders cached directly on root model classes;
 - `schema.py` contains the schema DSL and resolves builders through that helper;
 - `_compiler.py` validates dataclasses and compiles physical plans;
@@ -23,7 +24,9 @@ The implementation has an acyclic module graph and no function-local imports:
 - `model.py` contains only the required root-model decorator.
 
 Use `dataclasses.field` for defaults and factories. There is deliberately no
-model-level `field`, dtype override, alias, or dynamic extras API. Flat storage
-is configured by `Struct(flat=True)` or `ListStruct(flat=True)` in the schema.
+model-level `field`, dtype override, alias, or untyped extras API. Runtime
+dictionary columns use `FlatDict[T]` plus explicit `Context.bind()` keys. Flat
+Struct storage is configured by `FlatStruct` or `FlatListStruct` in the schema;
+their `divider` defaults to `_`.
 See [`docs/typed_polars.md`](../../docs/typed_polars.md) and
 the regular and flat examples in [`examples`](../../examples/README.md).

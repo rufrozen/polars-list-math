@@ -78,19 +78,58 @@ Schema columns also provide typed expressions. Use `.fields` after `Struct` and
 `.item` after `ListStruct`, for example
 `RowSchema.items.item.score.expr()`.
 
+## Runtime dictionary columns
+
+`FlatDict[T]` expands a model field annotated as `dict[str, T]` into physical
+columns selected at runtime. Bind the complete ordered key set in a `Context`
+when building a schema or DataFrame:
+
+```python
+class MetricsSchema(tp.Schema):
+    request_id = tp.Column[str](polars_name="requestId")
+    metrics = tp.FlatDict[float]()
+
+
+@tp.model(schema=MetricsSchema)
+class MetricsRow:
+    request_id: str
+    metrics: dict[str, float] = field(default_factory=dict)
+
+
+context = tp.Context().bind(MetricsSchema.metrics, ["views", "conversion"])
+row = MetricsRow("one", {"views": 10.0})
+frame = MetricsSchema.to_frame(row, context=context)
+```
+
+The frame contains `metrics_views` and `metrics_conversion`; a missing key is
+stored as null. `polars_name` controls the prefix and `divider` defaults to
+`_`. With no context, or no binding for a particular `FlatDict`, its key set
+is empty. A non-empty runtime dictionary containing unbound keys is rejected to
+prevent silent data loss.
+
+Reverse conversion does not take a context. `from_frame()` and `iter_frame()`
+discover dynamic keys by prefix and omit null values when rebuilding the
+dictionary. `FlatDict.key_expr("views")` creates an expression for one dynamic
+physical column. Physical plans are cached by the context binding snapshot.
+
+For a nested field, bind its path from the root schema, for example
+`context.bind(RowSchema.payload.fields.metrics, keys)`. Binding the original
+nested declaration instead applies the same keys as a fallback everywhere that
+nested schema is reused; path bindings can override it independently.
+
 ## Flat storage
 
-Flattening is a storage property of the schema, not the dataclass model. Set
-`flat=True` on a `Struct` or `ListStruct`; `flat_divider` controls the physical
-column separator:
+Flattening is a storage property of the schema, not the dataclass model.
+`FlatStruct` and `FlatListStruct` expand nested values into sibling physical
+columns; `divider` controls the physical column separator:
 
 ```python
 class FlatRowSchema(tp.Schema):
-    item = tp.Struct[ItemSchema](flat=True, flat_divider="__")
-    history = tp.ListStruct[ItemSchema](flat=True)
+    item = tp.FlatStruct[ItemSchema](divider="__")
+    history = tp.FlatListStruct[ItemSchema]()
 ```
 
 This produces scalar columns such as `item__value` and, with the default `_`
-divider, parallel list columns such as `history_value`. Schema expressions point to those physical columns,
-and model DataFrame conversion transparently flattens and reconstructs the
-nested dataclass values.
+divider, parallel list columns such as `history_value`. Schema expressions
+point to those physical columns, and model DataFrame conversion transparently
+flattens and reconstructs the nested dataclass values.

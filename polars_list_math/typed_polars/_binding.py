@@ -8,6 +8,7 @@ from typing import Any, Protocol, cast
 import polars as pl
 
 from ._plans import PhysicalPlan
+from .context import Context
 
 
 class BuilderProtocol[T](Protocol):
@@ -18,11 +19,25 @@ class BuilderProtocol[T](Protocol):
     strict: bool
     physical_plan: PhysicalPlan
 
-    def polars_schema(self) -> pl.Schema: ...
+    def physical_plan_for(self, context: Context | None = None) -> PhysicalPlan: ...
 
-    def to_frame(self, row: T, *, strict: bool = True) -> pl.DataFrame: ...
+    def polars_schema(self, *, context: Context | None = None) -> pl.Schema: ...
 
-    def to_frame_many(self, rows: Iterable[T], *, strict: bool = True) -> pl.DataFrame: ...
+    def to_frame(
+        self,
+        row: T,
+        *,
+        context: Context | None = None,
+        strict: bool = True,
+    ) -> pl.DataFrame: ...
+
+    def to_frame_many(
+        self,
+        rows: Iterable[T],
+        *,
+        context: Context | None = None,
+        strict: bool = True,
+    ) -> pl.DataFrame: ...
 
     def iter_frame(
         self,
@@ -42,7 +57,13 @@ class BuilderProtocol[T](Protocol):
 
     def assert_frame_schema(self, frame: pl.DataFrame) -> None: ...
 
-    def to_dict(self, row: T, *, by_polars_name: bool = False) -> dict[str, Any]: ...
+    def to_dict(
+        self,
+        row: T,
+        *,
+        by_polars_name: bool = False,
+        context: Context | None = None,
+    ) -> dict[str, Any]: ...
 
     def from_dict(
         self,

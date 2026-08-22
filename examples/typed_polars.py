@@ -52,6 +52,7 @@ class AllTypesSchema(tp.Schema):
     optional_text = tp.Column[str | None](polars_name="optionalText")
     tags = tp.Column[list[str]]()
     weights = tp.Column[dict[str, float]]()
+    dynamic_metrics = tp.FlatDict[float]()
     suggestions = tp.ListStruct[SuggestionSchema]()
 
 
@@ -98,6 +99,7 @@ class AllTypesRow:
     optional_text: str | None = None
     tags: list[str] = field(default_factory=list)
     weights: dict[str, float] = field(default_factory=dict)
+    dynamic_metrics: dict[str, float] = field(default_factory=dict)
     suggestions: list[Suggestion] = field(default_factory=list)
 
 
@@ -131,25 +133,32 @@ row = AllTypesRow(
     profile=Profile("Polars", 10),
     tags=["typed", "schema"],
     weights={"quality": 1.0},
+    dynamic_metrics={"views": 100.0, "conversion": 0.5},
     suggestions=[Suggestion("polars", 0.75)],
 )
 
-frame = AllTypesSchema.to_frame(row)
+context = tp.Context().bind(
+    AllTypesSchema.dynamic_metrics,
+    ["views", "conversion"],
+)
+frame = AllTypesSchema.to_frame(row, context=context)
 restored = AllTypesSchema.from_frame(AllTypesRow, frame)
 
-assert frame.schema == AllTypesSchema.polars_schema()
+assert frame.schema == AllTypesSchema.polars_schema(context=context)
 assert restored == row
 
 selected = frame.select(
     AllTypesSchema.request_id.expr(),
     AllTypesSchema.profile.fields.name.expr().alias("profileName"),
     AllTypesSchema.suggestions.item.score.expr().alias("suggestionScores"),
+    AllTypesSchema.dynamic_metrics.key_expr("conversion"),
 )
 assert selected.to_dicts() == [
     {
         "requestId": "request-1",
         "profileName": "Polars",
         "suggestionScores": [0.75],
+        "dynamic_metrics_conversion": 0.5,
     }
 ]
 

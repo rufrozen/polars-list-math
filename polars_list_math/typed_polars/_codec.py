@@ -9,14 +9,21 @@ import polars as pl
 
 from ._binding import get_builder
 from ._plans import PhysicalPlan
-from .schema import Schema
+from .context import Context, context_keys
+from .schema import FlatDict, ListStruct, Schema, Struct
 
 
-def to_frame_many(cls: type[Any], rows: Iterable[Any], *, strict: bool = True) -> pl.DataFrame:
+def to_frame_many(
+    cls: type[Any],
+    rows: Iterable[Any],
+    *,
+    context: Context | None = None,
+    strict: bool = True,
+) -> pl.DataFrame:
     materialized = list(rows)
-    plan = physical_plan(cls)
+    plan = physical_plan(cls, context=context)
     for row in materialized:
-        validate_row(cls, row)
+        validate_row(cls, row, context=context)
     physical_rows = [plan.serialize(row) for row in materialized]
     return pl.DataFrame(physical_rows, orient="row", schema=plan.schema, strict=strict)
 
@@ -37,25 +44,62 @@ def from_frame(cls: type[Any], frame: pl.DataFrame, *, strict_schema: bool = Fal
 
 
 def assert_frame_schema(cls: type[Any], frame: pl.DataFrame) -> None:
-    expected = physical_plan(cls).schema
+    context = infer_context(cls, frame.schema)
+    expected = physical_plan(cls, context=context).schema
     if frame.schema != expected:
         raise TypeError(f"Unexpected DataFrame schema: expected {expected}, got {frame.schema}")
 
 
-def to_dict(value: Any, *, by_polars_name: bool = False) -> dict[str, Any]:
+def to_dict(
+    value: Any,
+    *,
+    by_polars_name: bool = False,
+    context: Context | None = None,
+    _context_path: tuple[object, ...] = (),
+) -> dict[str, Any]:
     cls = type(value)
     plan = cls.__tp2_plan__
     schema = require_schema(cls) if by_polars_name else None
     result: dict[str, Any] = {}
     for item in plan.fields:
         child = getattr(value, item.name)
-        if by_polars_name and item.name not in cast(type[Schema], schema).fields():
+        column = cast(type[Schema], schema).fields().get(item.name) if by_polars_name else None
+        if by_polars_name and column is None:
+            continue
+        if by_polars_name and item.kind == "flat_dict":
+            assert isinstance(column, FlatDict)
+            field_path = _context_path + (column,)
+            _validate_flat_dict(
+                item.name,
+                child,
+                column,
+                context,
+                field_path,
+            )
+            for dynamic_key in context_keys(context, column, field_path):
+                result[column.physical_name(dynamic_key)] = (
+                    None if child is None else child.get(dynamic_key)
+                )
             continue
         key = polars_name(cls, item.name) if by_polars_name else item.name
+        nested_context_path = _context_path + (column,) if column is not None else _context_path
         if item.kind == "struct" and child is not None:
-            child = to_dict(child, by_polars_name=by_polars_name)
+            child = to_dict(
+                child,
+                by_polars_name=by_polars_name,
+                context=context,
+                _context_path=nested_context_path,
+            )
         elif item.kind == "list_struct" and child is not None:
-            child = [to_dict(nested, by_polars_name=by_polars_name) for nested in child]
+            child = [
+                to_dict(
+                    nested,
+                    by_polars_name=by_polars_name,
+                    context=context,
+                    _context_path=nested_context_path,
+                )
+                for nested in child
+            ]
         result[key] = child
     return result
 
@@ -117,9 +161,20 @@ def unflatten(cls: type[Any], schema: type[Schema], data: Mapping[str, Any]) -> 
         column = schema.fields().get(item.name)
         if column is None:
             continue
+        if isinstance(column, FlatDict):
+            prefix = f"{column.polars_name}{column.divider}"
+            selected: dict[str, Any] = {}
+            for key in tuple(result):
+                if not key.startswith(prefix):
+                    continue
+                value = result.pop(key)
+                if value is not None:
+                    selected[key[len(prefix) :]] = value
+            result[column.polars_name] = selected
+            continue
         if item.kind not in ("struct", "list_struct") or not cast(Any, column).flat:
             continue
-        prefix = f"{column.polars_name}{cast(Any, column).flat_divider}"
+        prefix = f"{column.polars_name}{cast(Any, column).divider}"
         selected = {
             key[len(prefix) :]: result.pop(key) for key in tuple(result) if key.startswith(prefix)
         }
@@ -157,25 +212,137 @@ def polars_name(cls: type[Any], field_name: str) -> str:
     return require_schema(cls).fields()[field_name].polars_name
 
 
-def physical_plan(cls: type[Any]) -> PhysicalPlan:
+def physical_plan(
+    cls: type[Any],
+    *,
+    context: Context | None = None,
+) -> PhysicalPlan:
     schema = require_schema(cls)
-    return cast(PhysicalPlan, get_builder(cls, schema=schema).physical_plan)
+    return cast(
+        PhysicalPlan,
+        get_builder(cls, schema=schema).physical_plan_for(context),
+    )
 
 
-def validate_row(cls: type[Any], row: Any) -> None:
+def validate_row(
+    cls: type[Any],
+    row: Any,
+    *,
+    context: Context | None,
+    _context_path: tuple[object, ...] = (),
+) -> None:
     if type(row) is not cls:
         raise TypeError(f"Expected {cls.__name__}, got {type(row).__name__}")
     schema = require_schema(cls)
     for item in cls.__tp2_plan__.fields:
-        if item.name not in schema.fields() or item.nested is None:
+        if item.kind == "flat_dict":
+            column = schema.fields()[item.name]
+            assert isinstance(column, FlatDict)
+            field_path = _context_path + (column,)
+            _validate_flat_dict(
+                item.name,
+                getattr(row, item.name),
+                column,
+                context,
+                field_path,
+            )
             continue
+        if item.nested is None:
+            continue
+        if item.name not in schema.fields():
+            continue
+        column = schema.fields()[item.name]
         value = getattr(row, item.name)
         if value is None:
             continue
         if item.kind == "struct":
-            validate_row(item.nested, value)
+            validate_row(
+                item.nested,
+                value,
+                context=context,
+                _context_path=_context_path + (column,),
+            )
             continue
         if not isinstance(value, list):
             raise TypeError(f"Field {item.name!r} must be a list of {item.nested.__name__}")
         for child in value:
-            validate_row(item.nested, child)
+            validate_row(
+                item.nested,
+                child,
+                context=context,
+                _context_path=_context_path + (column,),
+            )
+
+
+def _validate_flat_dict(
+    name: str,
+    value: Any,
+    column: FlatDict[Any],
+    context: Context | None,
+    context_path: tuple[object, ...],
+) -> None:
+    if value is None:
+        return
+    if not isinstance(value, Mapping):
+        raise TypeError(f"Field {name!r} must be a mapping")
+    allowed = set(context_keys(context, column, context_path))
+    unknown = set(value) - allowed
+    if unknown:
+        rendered = ", ".join(sorted(repr(key) for key in unknown))
+        raise TypeError(f"FlatDict field {name!r} has unbound key(s): {rendered}")
+
+
+def infer_context(cls: type[Any], physical_schema: Mapping[str, Any]) -> Context:
+    """Infer FlatDict keys from a physical schema for reverse conversion."""
+    context = Context()
+    _infer_context(cls, require_schema(cls), physical_schema, context, ())
+    return context
+
+
+def _infer_context(
+    cls: type[Any],
+    schema: type[Schema],
+    physical_fields: Mapping[str, Any],
+    context: Context,
+    context_path: tuple[object, ...],
+) -> None:
+    for item in cls.__tp2_plan__.fields:
+        column = schema.fields().get(item.name)
+        if column is None:
+            continue
+        if isinstance(column, FlatDict):
+            prefix = f"{column.polars_name}{column.divider}"
+            keys = [name[len(prefix) :] for name in physical_fields if name.startswith(prefix)]
+            context._bind_path(column, context_path + (column,), keys)
+            continue
+        if item.nested is None or not isinstance(column, (Struct, ListStruct)):
+            continue
+        if column.flat:
+            prefix = f"{column.polars_name}{column.divider}"
+            nested_fields: dict[str, Any] = {}
+            for name, dtype in physical_fields.items():
+                if not name.startswith(prefix):
+                    continue
+                nested_dtype = dtype
+                if isinstance(column, ListStruct) and isinstance(dtype, pl.List):
+                    nested_dtype = dtype.inner
+                nested_fields[name[len(prefix) :]] = nested_dtype
+            _infer_context(
+                item.nested,
+                column.schema,
+                nested_fields,
+                context,
+                context_path + (column,),
+            )
+            continue
+        dtype = physical_fields.get(column.polars_name)
+        if isinstance(column, ListStruct):
+            dtype = dtype.inner if isinstance(dtype, pl.List) else None
+        if isinstance(dtype, pl.Struct):
+            _infer_context(
+                item.nested,
+                column.schema,
+                dtype.to_schema(),
+                context,
+                context_path + (column,),
+            )

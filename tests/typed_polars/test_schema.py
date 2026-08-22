@@ -148,8 +148,8 @@ def test_model_can_validate_a_recursive_schema_subset() -> None:
 
 def test_flat_struct_and_list_struct_are_declared_by_schema() -> None:
     class FlatSchema(tp.Schema):
-        context = tp.Struct[ContextSchema](flat=True, flat_divider="__")
-        events = tp.ListStruct[EventSchema](flat=True)
+        context = tp.FlatStruct[ContextSchema](divider="__")
+        events = tp.FlatListStruct[EventSchema]()
 
     @dataclass
     class Location:
@@ -190,13 +190,19 @@ def test_flat_struct_and_list_struct_are_declared_by_schema() -> None:
         FlatSchema.events.item.score.expr(),
     )
     assert selected.to_dicts() == [{"context__source": "search", "events_score": [0.75]}]
+    assert_type(FlatSchema.context, tp.FlatStruct[ContextSchema])
+    assert_type(FlatSchema.events, tp.FlatListStruct[EventSchema])
 
 
 def test_flat_schema_options_are_validated() -> None:
-    with pytest.raises(TypeError, match="flat must be a bool"):
-        tp.Struct[ContextSchema](flat=1)  # type: ignore[arg-type]
-    with pytest.raises(TypeError, match="flat_divider"):
-        tp.ListStruct[EventSchema](flat=True, flat_divider="")
+    with pytest.raises(TypeError, match="divider"):
+        tp.FlatStruct[ContextSchema](divider=1)  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match="divider"):
+        tp.FlatListStruct[EventSchema](divider="")
+    with pytest.raises(TypeError, match="unexpected keyword argument 'flat'"):
+        tp.Struct[ContextSchema](flat=True)  # type: ignore[call-arg]
+    with pytest.raises(TypeError, match="unexpected keyword argument 'flat_divider'"):
+        tp.FlatStruct[ContextSchema](flat_divider="__")  # type: ignore[call-arg]
 
 
 def test_model_schema_validation_reports_incompatible_fields() -> None:

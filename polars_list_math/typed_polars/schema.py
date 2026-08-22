@@ -15,6 +15,7 @@ from typing import (
 import polars as pl
 
 from ._binding import get_builder
+from .context import Context, context_keys
 from .dtypes import annotation_to_dtype
 
 
@@ -28,6 +29,7 @@ class Column[T]:
         self._python_type: Any | None = None
         self._root = ""
         self._steps: tuple[tuple[str, str], ...] = ()
+        self._context_path: tuple[Column[Any], ...] = (self,)
 
     @property
     def python_type(self) -> Any:
@@ -63,12 +65,14 @@ class Column[T]:
         *,
         root: str,
         steps: tuple[tuple[str, str], ...],
+        context_path: tuple[Column[Any], ...],
     ) -> Column[Any]:
         result = Column[Any](polars_name=self.polars_name, dtype=self.dtype)
         result.name = self.name
         result._python_type = self.python_type
         result._root = root
         result._steps = steps
+        result._context_path = context_path
         return result
 
     def __repr__(self) -> str:
@@ -76,20 +80,111 @@ class Column[T]:
         return f"Column(polars_name={self.polars_name!r}, dtype={self.dtype!r})"
 
 
-class Struct[S: Schema](Column[S]):
-    """A typed Polars Struct column with a nested schema."""
+class FlatDict[V](Column[dict[str, V]]):
+    """A dictionary expanded into runtime-selected physical columns."""
 
     def __init__(
         self,
         *,
         polars_name: str | None = None,
-        flat: bool = False,
-        flat_divider: str = "_",
+        dtype: Any | None = None,
+        divider: str = "_",
+    ) -> None:
+        super().__init__(polars_name=polars_name, dtype=dtype)
+        _validate_divider(divider)
+        self.divider = divider
+        self._flat_dict_source: FlatDict[Any] = self
+
+    @property
+    def python_type(self) -> Any:
+        if self._python_type is None:
+            args = get_args(getattr(self, "__orig_class__", None))
+            if len(args) != 1:
+                raise TypeError(f"FlatDict {self.name!r} requires a generic value type")
+            self._python_type = dict[str, args[0]]
+        return self._python_type
+
+    @property
+    def value_type(self) -> Any:
+        """Return the declared Python value type."""
+        return get_args(self.python_type)[1]
+
+    @property
+    def context_source(self) -> object:
+        """Return the declaration shared by all bound field copies."""
+        return self._flat_dict_source
+
+    @property
+    def context_path(self) -> tuple[object, ...]:
+        """Return this field's path from its root schema."""
+        return self._context_path
+
+    def physical_name(self, key: str) -> str:
+        """Return the physical column name for one dynamic key."""
+        return f"{self.polars_name}{self.divider}{key}"
+
+    def expr(self) -> pl.Expr:
+        """Reject ambiguous expressions without a dynamic key."""
+        raise TypeError("FlatDict has no single column; use key_expr(key)")
+
+    def key_expr(self, key: str) -> pl.Expr:
+        """Build a Polars expression for one dynamic dictionary key."""
+        name = self.physical_name(key)
+        if not self._steps:
+            return pl.col(f"{self._root}{self.divider}{key}")
+        kind, _ = self._steps[-1]
+        steps = self._steps[:-1] + ((kind, name),)
+        return _apply_steps(pl.col(self._root), steps)
+
+    def _bind(
+        self,
+        *,
+        name: str,
+        root: str,
+        steps: tuple[tuple[str, str], ...],
+    ) -> Self:
+        self.name = name
+        if not self.polars_name:
+            self.polars_name = name
+        if self.dtype is None:
+            self.dtype = annotation_to_dtype(self.value_type)
+        self._root = root
+        self._steps = steps
+        return self
+
+    def _bound_copy(
+        self,
+        *,
+        root: str,
+        steps: tuple[tuple[str, str], ...],
+        context_path: tuple[Column[Any], ...],
+    ) -> FlatDict[Any]:
+        result = FlatDict[Any](
+            polars_name=self.polars_name,
+            dtype=self.dtype,
+            divider=self.divider,
+        )
+        result.name = self.name
+        result._python_type = self.python_type
+        result._root = root
+        result._steps = steps
+        result._context_path = context_path
+        result._flat_dict_source = self._flat_dict_source
+        return result
+
+
+class Struct[S: Schema](Column[S]):
+    """A typed Polars Struct column with a nested schema."""
+
+    flat = False
+    divider = "_"
+
+    def __init__(
+        self,
+        *,
+        polars_name: str | None = None,
     ) -> None:
         super().__init__(polars_name=polars_name)
-        _validate_flat_options(flat, flat_divider)
-        self.flat = flat
-        self.flat_divider = flat_divider
         self._fields: _BoundSchema | None = None
 
     @property
@@ -119,9 +214,21 @@ class Struct[S: Schema](Column[S]):
         self._root = root
         self._steps = steps
         self._fields = (
-            _bind_flat_schema(self.schema, self.polars_name, self.flat_divider, None)
+            _bind_flat_schema(
+                self.schema,
+                self.polars_name,
+                self.divider,
+                None,
+                self._context_path,
+            )
             if self.flat and not steps
-            else _bind_schema(self.schema, root, steps, "struct")
+            else _bind_schema(
+                self.schema,
+                root,
+                steps,
+                "struct",
+                self._context_path,
+            )
         )
         return self
 
@@ -130,33 +237,62 @@ class Struct[S: Schema](Column[S]):
         *,
         root: str,
         steps: tuple[tuple[str, str], ...],
+        context_path: tuple[Column[Any], ...],
     ) -> Struct[Any]:
-        result = Struct[Any](
-            polars_name=self.polars_name, flat=self.flat, flat_divider=self.flat_divider
-        )
+        result = self._new_bound_copy()
         result.name = self.name
         result._python_type = self.schema
         result.dtype = self.dtype
         result._root = root
         result._steps = steps
-        result._fields = _bind_schema(self.schema, root, steps, "struct")
+        result._context_path = context_path
+        result._fields = _bind_schema(
+            self.schema,
+            root,
+            steps,
+            "struct",
+            context_path,
+        )
         return result
 
+    def _new_bound_copy(self) -> Struct[Any]:
+        return Struct[Any](polars_name=self.polars_name)
 
-class ListStruct[S: Schema](Column[list[S]]):
-    """A typed Polars List[Struct] column with an item schema."""
+
+class FlatStruct[S: Schema](Struct[S]):
+    """A nested schema expanded into sibling physical columns."""
+
+    flat = True
 
     def __init__(
         self,
         *,
         polars_name: str | None = None,
-        flat: bool = False,
-        flat_divider: str = "_",
+        divider: str = "_",
     ) -> None:
         super().__init__(polars_name=polars_name)
-        _validate_flat_options(flat, flat_divider)
-        self.flat = flat
-        self.flat_divider = flat_divider
+        _validate_divider(divider)
+        self.divider = divider
+
+    def _new_bound_copy(self) -> Struct[Any]:
+        return FlatStruct[Any](
+            polars_name=self.polars_name,
+            divider=self.divider,
+        )
+
+
+class ListStruct[S: Schema](Column[list[S]]):
+    """A typed Polars List[Struct] column with an item schema."""
+
+    flat = False
+    divider = "_"
+
+    def __init__(
+        self,
+        *,
+        polars_name: str | None = None,
+    ) -> None:
+        super().__init__(polars_name=polars_name)
         self._item: _BoundSchema | None = None
 
     @property
@@ -196,9 +332,21 @@ class ListStruct[S: Schema](Column[list[S]]):
         self._root = root
         self._steps = steps
         self._item = (
-            _bind_flat_schema(self.schema, self.polars_name, self.flat_divider, "list")
+            _bind_flat_schema(
+                self.schema,
+                self.polars_name,
+                self.divider,
+                "list",
+                self._context_path,
+            )
             if self.flat and not steps
-            else _bind_schema(self.schema, root, steps, "list_struct")
+            else _bind_schema(
+                self.schema,
+                root,
+                steps,
+                "list_struct",
+                self._context_path,
+            )
         )
         return self
 
@@ -207,17 +355,48 @@ class ListStruct[S: Schema](Column[list[S]]):
         *,
         root: str,
         steps: tuple[tuple[str, str], ...],
+        context_path: tuple[Column[Any], ...],
     ) -> ListStruct[Any]:
-        result = ListStruct[Any](
-            polars_name=self.polars_name, flat=self.flat, flat_divider=self.flat_divider
-        )
+        result = self._new_bound_copy()
         result.name = self.name
         result._python_type = list[self.schema]
         result.dtype = self.dtype
         result._root = root
         result._steps = steps
-        result._item = _bind_schema(self.schema, root, steps, "list_struct")
+        result._context_path = context_path
+        result._item = _bind_schema(
+            self.schema,
+            root,
+            steps,
+            "list_struct",
+            context_path,
+        )
         return result
+
+    def _new_bound_copy(self) -> ListStruct[Any]:
+        return ListStruct[Any](polars_name=self.polars_name)
+
+
+class FlatListStruct[S: Schema](ListStruct[S]):
+    """A List[Struct] expanded into parallel physical list columns."""
+
+    flat = True
+
+    def __init__(
+        self,
+        *,
+        polars_name: str | None = None,
+        divider: str = "_",
+    ) -> None:
+        super().__init__(polars_name=polars_name)
+        _validate_divider(divider)
+        self.divider = divider
+
+    def _new_bound_copy(self) -> ListStruct[Any]:
+        return FlatListStruct[Any](
+            polars_name=self.polars_name,
+            divider=self.divider,
+        )
 
 
 class SchemaMeta(type):
@@ -264,19 +443,34 @@ class Schema(metaclass=SchemaMeta):
         return MappingProxyType(cls.__schema_columns__)
 
     @classmethod
-    def polars_schema(cls) -> pl.Schema:
+    def polars_schema(cls, *, context: Context | None = None) -> pl.Schema:
         """Return the complete physical Polars schema."""
-        return pl.Schema(_physical_fields(cls))
+        return pl.Schema(_physical_fields(cls, context=context))
 
     @classmethod
-    def model_schema(cls, model: type[Any]) -> pl.Schema:
+    def model_schema(
+        cls,
+        model: type[Any],
+        *,
+        context: Context | None = None,
+    ) -> pl.Schema:
         """Return the cached physical schema selected by a root model."""
-        return get_builder(model, schema=cls).polars_schema()
+        return get_builder(model, schema=cls).polars_schema(context=context)
 
     @classmethod
-    def to_frame(cls, row: Any, *, strict: bool = True) -> pl.DataFrame:
+    def to_frame(
+        cls,
+        row: Any,
+        *,
+        context: Context | None = None,
+        strict: bool = True,
+    ) -> pl.DataFrame:
         """Serialize one validated root model value."""
-        return get_builder(type(row), schema=cls).to_frame(row, strict=strict)
+        return get_builder(type(row), schema=cls).to_frame(
+            row,
+            context=context,
+            strict=strict,
+        )
 
     @classmethod
     def to_frame_many[T](
@@ -284,10 +478,15 @@ class Schema(metaclass=SchemaMeta):
         model: type[T],
         rows: Iterable[T],
         *,
+        context: Context | None = None,
         strict: bool = True,
     ) -> pl.DataFrame:
         """Serialize validated root model values."""
-        return get_builder(model, schema=cls).to_frame_many(rows, strict=strict)
+        return get_builder(model, schema=cls).to_frame_many(
+            rows,
+            context=context,
+            strict=strict,
+        )
 
     @classmethod
     def iter_frame[T](
@@ -317,9 +516,19 @@ class Schema(metaclass=SchemaMeta):
         get_builder(model, schema=cls).assert_frame_schema(frame)
 
     @classmethod
-    def to_dict(cls, row: Any, *, by_polars_name: bool = False) -> dict[str, Any]:
+    def to_dict(
+        cls,
+        row: Any,
+        *,
+        by_polars_name: bool = False,
+        context: Context | None = None,
+    ) -> dict[str, Any]:
         """Serialize one root model to a dictionary."""
-        return get_builder(type(row), schema=cls).to_dict(row, by_polars_name=by_polars_name)
+        return get_builder(type(row), schema=cls).to_dict(
+            row,
+            by_polars_name=by_polars_name,
+            context=context,
+        )
 
     @classmethod
     def from_dict[T](
@@ -352,16 +561,25 @@ def _bind_schema(
     root: str,
     steps: tuple[tuple[str, str], ...],
     container_kind: str,
+    context_path: tuple[Column[Any], ...],
 ) -> _BoundSchema:
     fields: dict[str, Column[Any]] = {}
     for name, column in schema.__schema_columns__.items():
         nested_steps = steps + ((container_kind, column.polars_name),)
-        fields[name] = column._bound_copy(root=root, steps=nested_steps)
+        fields[name] = column._bound_copy(
+            root=root,
+            steps=nested_steps,
+            context_path=context_path + (column,),
+        )
     return _BoundSchema(fields)
 
 
 def _bind_flat_schema(
-    schema: type[Schema], prefix: str, divider: str, list_kind: str | None
+    schema: type[Schema],
+    prefix: str,
+    divider: str,
+    list_kind: str | None,
+    context_path: tuple[Column[Any], ...],
 ) -> _BoundSchema:
     fields: dict[str, Column[Any]] = {}
     for name, column in schema.__schema_columns__.items():
@@ -370,20 +588,53 @@ def _bind_flat_schema(
         if list_kind is not None:
             # A flattened ListStruct child is already a physical list column.
             steps = ()
-        fields[name] = column._bound_copy(root=root, steps=steps)
+        fields[name] = column._bound_copy(
+            root=root,
+            steps=steps,
+            context_path=context_path + (column,),
+        )
     return _BoundSchema(fields)
 
 
-def _physical_fields(schema: type[Schema]) -> dict[str, Any]:
+def _physical_fields(
+    schema: type[Schema],
+    *,
+    context: Context | None,
+    context_path: tuple[object, ...] = (),
+) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for column in schema.__schema_columns__.values():
-        if isinstance(column, (Struct, ListStruct)) and column.flat:
-            for child_name, child_dtype in _physical_fields(column.schema).items():
-                name = f"{column.polars_name}{column.flat_divider}{child_name}"
+        if isinstance(column, FlatDict):
+            for key in context_keys(
+                context,
+                column,
+                context_path + (column,),
+            ):
+                _add_physical_field(
+                    result,
+                    column.physical_name(key),
+                    column.dtype,
+                    schema,
+                )
+            continue
+        if isinstance(column, (Struct, ListStruct)):
+            nested = _physical_fields(
+                column.schema,
+                context=context,
+                context_path=context_path + (column,),
+            )
+            if not column.flat:
+                dtype: Any = pl.Struct(nested)
+                if isinstance(column, ListStruct):
+                    dtype = pl.List(dtype)
+                _add_physical_field(result, column.polars_name, dtype, schema)
+                continue
+            for child_name, child_dtype in nested.items():
+                name = f"{column.polars_name}{column.divider}{child_name}"
                 dtype = pl.List(child_dtype) if isinstance(column, ListStruct) else child_dtype
                 _add_physical_field(result, name, dtype, schema)
-        else:
-            _add_physical_field(result, column.polars_name, cast(Any, column.dtype), schema)
+            continue
+        _add_physical_field(result, column.polars_name, cast(Any, column.dtype), schema)
     return result
 
 
@@ -395,11 +646,9 @@ def _add_physical_field(
     fields[name] = dtype
 
 
-def _validate_flat_options(flat: bool, flat_divider: str) -> None:
-    if not isinstance(flat, bool):
-        raise TypeError("flat must be a bool")
-    if not isinstance(flat_divider, str) or not flat_divider:
-        raise TypeError("flat_divider must be a non-empty string")
+def _validate_divider(divider: str) -> None:
+    if not isinstance(divider, str) or not divider:
+        raise TypeError("divider must be a non-empty string")
 
 
 def _apply_steps(expr: pl.Expr, steps: tuple[tuple[str, str], ...]) -> pl.Expr:

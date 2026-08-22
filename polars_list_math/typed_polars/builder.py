@@ -17,6 +17,8 @@ from ._codec import (
     to_frame_many,
 )
 from ._compiler import build_physical_plan, compile_model
+from ._plans import PhysicalPlan
+from .context import Context, context_signature
 from .schema import Schema
 
 
@@ -43,6 +45,7 @@ class Builder[T](BuilderProtocol[T]):
             schema,
             top_level=True,
         )
+        self._physical_plans = {context_signature(None): self.physical_plan}
         type.__setattr__(self.model, "__tp_builder__", self)
 
     @classmethod
@@ -55,17 +58,45 @@ class Builder[T](BuilderProtocol[T]):
         """Return the cached builder and require the requested schema."""
         return cast(Builder[T], get_builder(model, schema=schema))
 
-    def polars_schema(self) -> pl.Schema:
+    def physical_plan_for(self, context: Context | None = None) -> PhysicalPlan:
+        """Return or build the physical plan for a runtime context."""
+        if context is None:
+            return self.physical_plan
+        signature = context_signature(context)
+        plan = self._physical_plans.get(signature)
+        if plan is None:
+            plan = build_physical_plan(
+                self.model,
+                self.schema,
+                context=context,
+                top_level=True,
+            )
+            self._physical_plans[signature] = plan
+        return plan
+
+    def polars_schema(self, *, context: Context | None = None) -> pl.Schema:
         """Return the cached physical schema selected by the model."""
-        return self.physical_plan.schema
+        return self.physical_plan_for(context).schema
 
-    def to_frame(self, row: T, *, strict: bool = True) -> pl.DataFrame:
+    def to_frame(
+        self,
+        row: T,
+        *,
+        context: Context | None = None,
+        strict: bool = True,
+    ) -> pl.DataFrame:
         """Serialize one validated root model value."""
-        return self.to_frame_many([row], strict=strict)
+        return self.to_frame_many([row], context=context, strict=strict)
 
-    def to_frame_many(self, rows: Iterable[T], *, strict: bool = True) -> pl.DataFrame:
+    def to_frame_many(
+        self,
+        rows: Iterable[T],
+        *,
+        context: Context | None = None,
+        strict: bool = True,
+    ) -> pl.DataFrame:
         """Serialize validated root model values."""
-        return to_frame_many(self.model, rows, strict=strict)
+        return to_frame_many(self.model, rows, context=context, strict=strict)
 
     def iter_frame(
         self,
@@ -93,10 +124,20 @@ class Builder[T](BuilderProtocol[T]):
         """Require the cached physical model schema."""
         assert_frame_schema(self.model, frame)
 
-    def to_dict(self, row: T, *, by_polars_name: bool = False) -> dict[str, Any]:
+    def to_dict(
+        self,
+        row: T,
+        *,
+        by_polars_name: bool = False,
+        context: Context | None = None,
+    ) -> dict[str, Any]:
         """Serialize one validated model to a dictionary."""
         self.validate_model(type(row))
-        return to_dict(row, by_polars_name=by_polars_name)
+        return to_dict(
+            row,
+            by_polars_name=by_polars_name,
+            context=context,
+        )
 
     def from_dict(
         self,

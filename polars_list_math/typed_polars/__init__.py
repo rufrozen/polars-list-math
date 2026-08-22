@@ -1,6 +1,7 @@
 """Tuple-oriented typed Polars models based on schema-bound dataclasses."""
 
 from .builder import Builder
+from .context import Context, ContextFieldProtocol
 from .dtypes import (
     F32,
     F64,
@@ -20,7 +21,15 @@ from .dtypes import (
     TimestampUs,
 )
 from .model import model
-from .schema import Column, ListStruct, Schema, Struct
+from .schema import (
+    Column,
+    FlatDict,
+    FlatListStruct,
+    FlatStruct,
+    ListStruct,
+    Schema,
+    Struct,
+)
 
 __all__ = [
     "F32",
@@ -37,7 +46,12 @@ __all__ = [
     "DurationNs",
     "DurationUs",
     "Column",
+    "Context",
+    "ContextFieldProtocol",
     "Builder",
+    "FlatDict",
+    "FlatListStruct",
+    "FlatStruct",
     "ListStruct",
     "Schema",
     "Struct",
