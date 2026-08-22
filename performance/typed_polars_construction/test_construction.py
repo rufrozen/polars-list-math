@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from time import perf_counter
 from typing import Any, NamedTuple
 
@@ -13,41 +14,88 @@ DEFAULT_ROW_COUNT = 10_000
 ROW_COUNT = int(os.environ.get("POLARS_TYPED_ROWS", DEFAULT_ROW_COUNT))
 
 
-@tp.model
-class Address(tp.Model):
+class AddressSchema(tp.Schema):
+    city = tp.Column[str]()
+    zip_code = tp.Column[int](polars_name="zipCode")
+
+
+class ItemSchema(tp.Schema):
+    item_id = tp.Column[int](polars_name="itemId")
+    label = tp.Column[str]()
+    score = tp.Column[tp.F32]()
+
+
+class PayloadSchema(tp.Schema):
+    title = tp.Column[str]()
+    address = tp.Struct[AddressSchema]()
+    items = tp.ListStruct[ItemSchema]()
+
+
+class MetricsSchema(tp.Schema):
+    views = tp.Column[int]()
+    quality = tp.Column[tp.F32]()
+
+
+class FeatureSchema(tp.Schema):
+    code = tp.Column[str]()
+    weight = tp.Column[tp.F32]()
+
+
+class TypedRowSchema(tp.Schema):
+    row_id = tp.Column[int](polars_name="rowId")
+    name = tp.Column[str]()
+    active = tp.Column[bool]()
+    count = tp.Column[int]()
+    ratio = tp.Column[float]()
+    category = tp.Column[str]()
+    status = tp.Column[str]()
+    priority = tp.Column[int]()
+    amount = tp.Column[float]()
+    enabled = tp.Column[bool]()
+    payload = tp.Struct[PayloadSchema]()
+    metrics = tp.Struct[MetricsSchema](flat=True, flat_divider="__")
+    features = tp.ListStruct[FeatureSchema](flat=True, flat_divider="__")
+    tags = tp.Column[list[str]]()
+    values = tp.Column[list[int]]()
+    weights = tp.Column[dict[str, float]]()
+    note = tp.Column[str | None]()
+
+
+@dataclass
+class Address:
     city: str
-    zip_code: int = tp.field(polars_name="zipCode")
+    zip_code: int
 
 
-@tp.model
-class Item(tp.Model):
-    item_id: int = tp.field(polars_name="itemId")
+@dataclass
+class Item:
+    item_id: int
     label: str
-    score: tp.F32
+    score: float
 
 
-@tp.model
-class Payload(tp.Model):
+@dataclass
+class Payload:
     title: str
     address: Address
-    items: list[Item] = tp.field(default_factory=list)
+    items: list[Item] = field(default_factory=list)
 
 
-@tp.model
-class Metrics(tp.Model):
+@dataclass
+class Metrics:
     views: int
-    quality: tp.F32
+    quality: float
 
 
-@tp.model
-class Feature(tp.Model):
+@dataclass
+class Feature:
     code: str
-    weight: tp.F32
+    weight: float
 
 
-@tp.model
-class TypedRow(tp.Model):
-    row_id: int = tp.field(polars_name="rowId")
+@tp.model(schema=TypedRowSchema)
+class TypedRow:
+    row_id: int
     name: str
     active: bool
     count: int
@@ -58,11 +106,11 @@ class TypedRow(tp.Model):
     amount: float
     enabled: bool
     payload: Payload
-    metrics: Metrics = tp.field(flat=True, flat_divider="__")
-    features: list[Feature] = tp.field(flat=True, flat_divider="__")
-    tags: list[str] = tp.field(default_factory=list)
-    values: list[int] = tp.field(default_factory=list)
-    weights: dict[str, float] = tp.field(default_factory=dict)
+    metrics: Metrics
+    features: list[Feature]
+    tags: list[str] = field(default_factory=list)
+    values: list[int] = field(default_factory=list)
+    weights: dict[str, float] = field(default_factory=dict)
     note: str | None = None
 
 
@@ -209,7 +257,7 @@ def make_namedtuple_row(index: int) -> ReadyNamedTupleRow:
 
 
 def build_typed(rows: list[TypedRow]) -> pl.DataFrame:
-    return TypedRow.to_frame_many(rows)
+    return TypedRowSchema.to_frame_many(TypedRow, rows)
 
 
 def build_ready_namedtuple(rows: list[ReadyNamedTupleRow]) -> pl.DataFrame:

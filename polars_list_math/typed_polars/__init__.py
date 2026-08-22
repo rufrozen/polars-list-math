@@ -1,5 +1,6 @@
-"""Tuple-oriented typed Polars models based on slots dataclasses."""
+"""Tuple-oriented typed Polars models based on schema-bound dataclasses."""
 
+from .builder import Builder
 from .dtypes import (
     F32,
     F64,
@@ -18,7 +19,8 @@ from .dtypes import (
     TimestampNs,
     TimestampUs,
 )
-from .model import Extras, Model, extras, field, model
+from .model import model
+from .schema import Column, ListStruct, Schema, Struct
 
 __all__ = [
     "F32",
@@ -34,12 +36,13 @@ __all__ = [
     "DurationMs",
     "DurationNs",
     "DurationUs",
-    "Extras",
-    "Model",
+    "Column",
+    "Builder",
+    "ListStruct",
+    "Schema",
+    "Struct",
     "TimestampMs",
     "TimestampNs",
     "TimestampUs",
-    "extras",
-    "field",
     "model",
 ]

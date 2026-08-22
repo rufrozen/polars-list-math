@@ -1,55 +1,35 @@
-"""Flatten nested typed Polars models into physical Polars columns."""
+"""Flatten nested models through their schema declaration."""
+
+from dataclasses import dataclass
 
 import polars_list_math.typed_polars as tp
 
 
-@tp.model
-class Metrics(tp.Model):
+class MetricsSchema(tp.Schema):
+    views = tp.Column[int]()
+    conversion_rate = tp.Column[tp.F32](polars_name="conversionRate")
+
+
+class RowSchema(tp.Schema):
+    request_id = tp.Column[str](polars_name="requestId")
+    metrics = tp.Struct[MetricsSchema](flat=True, flat_divider="__")
+
+
+@dataclass
+class Metrics:
     views: int
-    conversion_rate: tp.F32 = tp.field(polars_name="conversionRate")
+    conversion_rate: float
 
 
-@tp.model
-class Item(tp.Model):
-    name: str
-    score: tp.F32
+@tp.model(schema=RowSchema)
+@dataclass
+class Row:
+    request_id: str
+    metrics: Metrics
 
 
-@tp.model
-class SearchResult(tp.Model):
-    request_id: str = tp.field(polars_name="requestId")
-    metrics: Metrics = tp.field(flat=True, flat_divider="__")
-    items: list[Item] = tp.field(flat=True, flat_divider="__")
-
-
-rows = [
-    SearchResult(
-        request_id="request-1",
-        metrics=Metrics(views=120, conversion_rate=0.5),
-        items=[Item(name="polars", score=0.75), Item(name="python", score=0.5)],
-    ),
-    SearchResult(
-        request_id="request-2",
-        metrics=Metrics(views=80, conversion_rate=0.25),
-        items=[Item(name="rust", score=1.0)],
-    ),
-]
-
-frame = SearchResult.to_frame_many(rows)
+row = Row("request-1", Metrics(120, 0.5))
+frame = RowSchema.to_frame(row)
+assert frame.columns == ["requestId", "metrics__views", "metrics__conversionRate"]
+assert RowSchema.from_frame(Row, frame) == row
 print(frame)
-print(frame.schema)
-
-assert frame.columns == [
-    "requestId",
-    "metrics__views",
-    "metrics__conversionRate",
-    "items__name",
-    "items__score",
-]
-assert frame["metrics__views"].to_list() == [120, 80]
-assert frame["items__name"].to_list() == [["polars", "python"], ["rust"]]
-
-# Flat physical columns are assembled back into nested public dataclasses.
-restored = list(SearchResult.iter_frame(frame))
-assert restored == rows
-print(restored)

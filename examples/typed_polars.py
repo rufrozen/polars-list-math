@@ -1,80 +1,157 @@
-"""Build Polars frames from tuple-oriented slots dataclasses."""
+"""Exercise every Python type and explicit dtype supported by typed_polars."""
 
-from datetime import datetime
+from dataclasses import dataclass, field
+from datetime import date, datetime, timedelta
 
-import polars as pl
 import polars_list_math.typed_polars as tp
 
 
-@tp.model
-class Suggestion(tp.Model):
+class ProfileSchema(tp.Schema):
+    name = tp.Column[str]()
+    age = tp.Column[int]()
+
+
+class SuggestionSchema(tp.Schema):
+    value = tp.Column[str]()
+    score = tp.Column[tp.F32]()
+
+
+class AllTypesSchema(tp.Schema):
+    # Inferred Python scalar types.
+    request_id = tp.Column[str](polars_name="requestId")
+    integer = tp.Column[int]()
+    floating = tp.Column[float]()
+    active = tp.Column[bool]()
+    binary = tp.Column[bytes]()
+    calendar_date = tp.Column[date]()
+    timestamp = tp.Column[datetime]()
+    duration = tp.Column[timedelta]()
+
+    # Explicit-width integer and floating-point types.
+    i8 = tp.Column[tp.I8]()
+    i16 = tp.Column[tp.I16]()
+    i32 = tp.Column[tp.I32]()
+    i64 = tp.Column[tp.I64]()
+    u8 = tp.Column[tp.U8]()
+    u16 = tp.Column[tp.U16]()
+    u32 = tp.Column[tp.U32]()
+    u64 = tp.Column[tp.U64]()
+    f32 = tp.Column[tp.F32]()
+    f64 = tp.Column[tp.F64]()
+
+    # Explicit temporal resolutions.
+    timestamp_ms = tp.Column[tp.TimestampMs]()
+    timestamp_us = tp.Column[tp.TimestampUs]()
+    timestamp_ns = tp.Column[tp.TimestampNs]()
+    duration_ms = tp.Column[tp.DurationMs]()
+    duration_us = tp.Column[tp.DurationUs]()
+    duration_ns = tp.Column[tp.DurationNs]()
+
+    # Nested dataclass, nullable, and container types.
+    profile = tp.Struct[ProfileSchema]()
+    optional_text = tp.Column[str | None](polars_name="optionalText")
+    tags = tp.Column[list[str]]()
+    weights = tp.Column[dict[str, float]]()
+    suggestions = tp.ListStruct[SuggestionSchema]()
+
+
+@dataclass
+class Profile:
+    name: str
+    age: int
+
+
+@dataclass
+class Suggestion:
     value: str
-    score: tp.F32
-    corrected_query: str | None = tp.field(
-        default=None,
-        polars_name="correctedQuery",
-    )
+    score: float
 
 
-@tp.model
-class SearchResult(tp.Model):
-    request_id: str = tp.field(polars_name="requestId")
-    weights: dict[str, float]
-    suggestions: list[Suggestion] = tp.field(default_factory=list)
-    labels: dict[int, str] = tp.field(default_factory=dict)
-    extra: tp.Extras = tp.extras(default_factory=dict)
+@tp.model(schema=AllTypesSchema, strict=True)
+@dataclass
+class AllTypesRow:
+    request_id: str
+    integer: int
+    floating: float
+    active: bool
+    binary: bytes
+    calendar_date: date
+    timestamp: datetime
+    duration: timedelta
+    i8: int
+    i16: int
+    i32: int
+    i64: int
+    u8: int
+    u16: int
+    u32: int
+    u64: int
+    f32: float
+    f64: float
+    timestamp_ms: datetime
+    timestamp_us: datetime
+    timestamp_ns: datetime
+    duration_ms: timedelta
+    duration_us: timedelta
+    duration_ns: timedelta
+    profile: Profile
+    optional_text: str | None = None
+    tags: list[str] = field(default_factory=list)
+    weights: dict[str, float] = field(default_factory=dict)
+    suggestions: list[Suggestion] = field(default_factory=list)
 
 
-@tp.model
-class Event(tp.Model):
-    timestamp: tp.TimestampMs
-    search: SearchResult
-    tags: list[str] = tp.field(default_factory=list)
+moment = datetime(2026, 8, 22, 12)  # noqa: DTZ001
+elapsed = timedelta(seconds=5)
+row = AllTypesRow(
+    request_id="request-1",
+    integer=-1,
+    floating=0.5,
+    active=True,
+    binary=b"typed-polars",
+    calendar_date=date(2026, 8, 22),
+    timestamp=moment,
+    duration=elapsed,
+    i8=-8,
+    i16=-16,
+    i32=-32,
+    i64=-64,
+    u8=8,
+    u16=16,
+    u32=32,
+    u64=64,
+    f32=0.25,
+    f64=0.5,
+    timestamp_ms=moment,
+    timestamp_us=moment,
+    timestamp_ns=moment,
+    duration_ms=elapsed,
+    duration_us=elapsed,
+    duration_ns=elapsed,
+    profile=Profile("Polars", 10),
+    tags=["typed", "schema"],
+    weights={"quality": 1.0},
+    suggestions=[Suggestion("polars", 0.75)],
+)
 
+frame = AllTypesSchema.to_frame(row)
+restored = AllTypesSchema.from_frame(AllTypesRow, frame)
 
-rows = [
-    Event(
-        # TimestampMs intentionally declares a timezone-naive Polars dtype.
-        timestamp=datetime(2026, 8, 19, 12),  # noqa: DTZ001
-        search=SearchResult(
-            request_id="request-1",
-            weights={"polars": 1.0, "python": 0.5},
-            suggestions=[
-                Suggestion("polars", 0.50),
-                Suggestion("python", 0.75, corrected_query="python language"),
-            ],
-            labels={1: "primary", 2: "secondary"},
-            extra={"source": "web"},
-        ),
-        tags=["typed", "nested"],
-    ),
-    Event(
-        timestamp=datetime(2026, 8, 19, 13),  # noqa: DTZ001
-        search=SearchResult(
-            request_id="request-2",
-            weights={"rust": 0.75},
-            suggestions=[Suggestion("rust", 0.25)],
-            extra={"page": 2},
-        ),
-    ),
+assert frame.schema == AllTypesSchema.polars_schema()
+assert restored == row
+
+selected = frame.select(
+    AllTypesSchema.request_id.expr(),
+    AllTypesSchema.profile.fields.name.expr().alias("profileName"),
+    AllTypesSchema.suggestions.item.score.expr().alias("suggestionScores"),
+)
+assert selected.to_dicts() == [
+    {
+        "requestId": "request-1",
+        "profileName": "Polars",
+        "suggestionScores": [0.75],
+    }
 ]
 
-frame = Event.to_frame_many(rows)
-print(frame)
 print(frame.schema)
-
-# dict[K, V] is stored as List[Struct[key: K, value: V]].
-assert frame["search"].struct.field("weights").to_list()[0] == [
-    {"key": "polars", "value": 1.0},
-    {"key": "python", "value": 0.5},
-]
-
-# Nested expressions use the regular, fully typed Polars API.
-scores = pl.col("search").struct.field("suggestions").list.eval(pl.element().struct.field("score"))
-print(frame.select(scores))
-
-# Polars Struct values are converted back into the public slots dataclasses.
-restored = list(Event.iter_frame(frame))
-assert restored == rows
-print(restored[0].search.request_id)
-print(restored[0].search.weights)
+print(selected)

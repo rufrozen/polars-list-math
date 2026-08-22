@@ -19,10 +19,10 @@ Each file is a standalone example of one part of `polars-list-math`:
   expressions as query strings;
 - [`url_build.py`](url_build.py) assembles URLs from optional component
   expressions.
-- [`typed_polars.py`](typed_polars.py) builds nested typed DataFrames from slots
-  dataclasses and converts them back to Python models;
-- [`typed_polars_flat.py`](typed_polars_flat.py) expands Struct and ListStruct
-  models into physical flat columns.
+- [`typed_polars.py`](typed_polars.py) exercises every supported Python type,
+  explicit dtype alias, container, and nested schema, including round-trip;
+- [`typed_polars_flat.py`](typed_polars_flat.py) declares flattened Struct
+  storage in the typed schema;
 
 Install the project, then run an example from the repository root:
 

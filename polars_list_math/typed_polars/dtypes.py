@@ -84,12 +84,6 @@ def annotation_to_dtype(annotation: Any) -> Any:
             )
         )
 
-    # Local import avoids a module cycle while resolving nested schemas.
-    from .model import Model
-
-    if isinstance(annotation, type) and issubclass(annotation, Model):
-        return pl.Struct(annotation.polars_schema())
-
     try:
         return _DEFAULT_DTYPES[annotation]
     except KeyError:

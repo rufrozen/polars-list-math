@@ -1,51 +1,57 @@
-import importlib
-import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import polars as pl
 import polars_list_math.typed_polars as tp
 import pytest
 
 
-@tp.model
-class Suggestion(tp.Model):
+class SuggestionSchema(tp.Schema):
+    value = tp.Column[str]()
+    corrected_query = tp.Column[str](polars_name="correctedQuery")
+
+
+class CompletionSchema(tp.Schema):
+    prefix = tp.Column[str](polars_name="queryPrefix")
+    suggestions = tp.ListStruct[SuggestionSchema]()
+
+
+class RowSchema(tp.Schema):
+    request_id = tp.Column[str](polars_name="requestId")
+    position = tp.Column[int](dtype=pl.Int32)
+    completion = tp.Struct[CompletionSchema]()
+    tags = tp.Column[list[str]]()
+
+
+@tp.model(schema=SuggestionSchema)
+class Suggestion:
     value: str
-    corrected_query: str = tp.field(polars_name="correctedQuery")
+    corrected_query: str
 
 
-@tp.model
-class Completion(tp.Model):
-    prefix: str = tp.field(polars_name="queryPrefix")
-    suggestions: list[Suggestion] = tp.field(default_factory=list)
+@tp.model(schema=CompletionSchema)
+class Completion:
+    prefix: str
+    suggestions: list[Suggestion] = field(default_factory=list)
 
 
-@tp.model
-class Row(tp.Model):
-    request_id: str = tp.field(polars_name="requestId")
-    position: tp.I32
+@tp.model(schema=RowSchema)
+class Row:
+    request_id: str
+    position: int
     completion: Completion
-    tags: list[str] = tp.field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
 
 
 def make_row(request_id: str = "one") -> Row:
     return Row(
-        request_id=request_id,
-        position=7,
-        completion=Completion(
-            prefix="по",
-            suggestions=[
-                Suggestion("поле", "поле"),
-                Suggestion("полёт", "полет"),
-            ],
-        ),
+        request_id,
+        7,
+        Completion("по", [Suggestion("поле", "поле"), Suggestion("полёт", "полет")]),
     )
 
 
-def test_nested_models_use_exact_schema_and_round_trip() -> None:
-    row = make_row()
-
-    frame = row.to_frame()
-
+def test_schema_supplies_all_polars_names_and_dtypes() -> None:
+    frame = RowSchema.to_frame(make_row())
     assert frame.schema == pl.Schema(
         {
             "requestId": pl.String,
@@ -61,154 +67,84 @@ def test_nested_models_use_exact_schema_and_round_trip() -> None:
             "tags": pl.List(pl.String),
         }
     )
-    assert Row.from_frame(frame) == row
-    assert row.to_dict(by_polars_name=True)["completion"]["queryPrefix"] == "по"
-    assert Row.from_dict(row.to_dict(by_polars_name=True), by_polars_name=True) == row
+    assert RowSchema.from_frame(Row, frame) == make_row()
 
 
-def test_many_rows_are_built_from_physical_tuples() -> None:
+def test_many_rows_and_dict_round_trip() -> None:
     rows = [make_row("one"), make_row("two")]
-
-    frame = Row.to_frame_many(rows)
-
-    assert frame.height == 2
-    assert list(Row.iter_frame(frame)) == rows
-
-
-def test_flat_struct_and_flat_list_struct_round_trip() -> None:
-    @tp.model
-    class FlatRow(tp.Model):
-        completion: Completion = tp.field(flat=True, flat_divider="__")
-        suggestions: list[Suggestion] = tp.field(flat=True)
-
-    row = FlatRow(make_row().completion, make_row().completion.suggestions)
-    frame = row.to_frame()
-
-    assert frame.schema == pl.Schema(
-        {
-            "completion__queryPrefix": pl.String,
-            "completion__suggestions": pl.List(
-                pl.Struct({"value": pl.String, "correctedQuery": pl.String})
-            ),
-            "suggestions:value": pl.List(pl.String),
-            "suggestions:correctedQuery": pl.List(pl.String),
-        }
-    )
-    assert FlatRow.from_frame(frame) == row
+    frame = RowSchema.to_frame_many(Row, rows)
+    assert list(RowSchema.iter_frame(Row, frame)) == rows
+    physical = RowSchema.to_dict(rows[0], by_polars_name=True)
+    assert physical["completion"]["queryPrefix"] == "по"
+    assert RowSchema.from_dict(Row, physical, by_polars_name=True) == rows[0]
 
 
-def test_top_level_extras_expand_physical_tuple() -> None:
-    @tp.model
-    class FlexibleRow(tp.Model):
-        name: str
-        extra: tp.Extras = tp.extras(default_factory=dict)
+def test_standard_slots_dataclass_is_supported() -> None:
+    class FrozenSchema(tp.Schema):
+        value = tp.Column[str]()
+        corrected_query = tp.Column[str](polars_name="correctedQuery")
 
-    rows = [FlexibleRow("one", {"rank": 1}), FlexibleRow("two", {"active": True})]
-    frame = FlexibleRow.to_frame_many(rows)
+    @tp.model(schema=FrozenSchema)
+    @dataclass(slots=True, frozen=True)
+    class Frozen:
+        value: str
+        corrected_query: str = "same"
 
-    assert frame.to_dict(as_series=False) == {
-        "name": ["one", "two"],
-        "active": [None, True],
-        "rank": [1, None],
-    }
-    assert list(FlexibleRow.iter_frame(frame)) == rows
+    assert FrozenSchema.to_frame(Frozen("one")).schema == FrozenSchema.polars_schema()
 
 
-def test_nested_extras_generate_frame_specific_namedtuple() -> None:
-    @tp.model
-    class Payload(tp.Model):
-        title: str
-        extra: tp.Extras = tp.extras(default_factory=dict)
-
-    @tp.model
-    class FlexibleRow(tp.Model):
-        payload: Payload
-
-    rows = [
-        FlexibleRow(Payload("one", {"rank": 1})),
-        FlexibleRow(Payload("two", {"active": True})),
-    ]
-
-    frame = FlexibleRow.to_frame_many(rows)
-
-    assert frame.schema == pl.Schema(
-        {"payload": pl.Struct({"title": pl.String, "active": pl.Boolean, "rank": pl.Int64})}
-    )
-    assert list(FlexibleRow.iter_frame(frame)) == rows
-
-
-def test_empty_rows_keep_declared_schema() -> None:
-    frame = Row.to_frame_many([])
-
-    assert frame.height == 0
-    assert frame.schema == Row.polars_schema()
-
-
-def test_dict_is_stored_as_list_of_key_value_structs() -> None:
-    @tp.model
-    class DictRow(tp.Model):
-        weights: dict[str, float]
-        optional: dict[int, str] | None = None
-
-    row = DictRow(weights={"polars": 1.0, "python": 0.5})
-    frame = row.to_frame()
-
-    assert frame.schema == pl.Schema(
-        {
-            "weights": pl.List(pl.Struct({"key": pl.String, "value": pl.Float64})),
-            "optional": pl.List(pl.Struct({"key": pl.Int64, "value": pl.String})),
-        }
-    )
-    assert frame.to_dicts() == [
-        {
-            "weights": [
-                {"key": "polars", "value": 1.0},
-                {"key": "python", "value": 0.5},
-            ],
-            "optional": None,
-        }
-    ]
-    assert DictRow.from_frame(frame) == row
-
-
-@pytest.mark.parametrize("alias", ("bad-name", "with.dot", "class", "_private"))
-def test_rejects_aliases_that_namedtuple_cannot_represent(alias: str) -> None:
-    with pytest.raises(TypeError, match="cannot be represented by NamedTuple"):
-
-        @tp.model
-        class Invalid(tp.Model):
-            value: int = tp.field(polars_name=alias)
-
-
-def test_requires_slots_dataclass() -> None:
+def test_only_root_dataclass_requires_model_decorator() -> None:
     @dataclass
-    class Invalid(tp.Model):
-        value: int
+    class PlainSuggestion:
+        value: str
+        corrected_query: str
 
-    with pytest.raises(TypeError, match=r"dataclass\(slots=True\)"):
-        tp.model(Invalid)
+    class PlainSchema(tp.Schema):
+        prefix = tp.Column[str](polars_name="queryPrefix")
+        suggestions = tp.ListStruct[SuggestionSchema]()
+
+    @tp.model(schema=PlainSchema)
+    @dataclass
+    class PlainCompletion:
+        prefix: str
+        suggestions: list[PlainSuggestion] = field(default_factory=list)
+
+    row = PlainCompletion("one", [PlainSuggestion("value", "corrected")])
+    frame = PlainSchema.to_frame(row)
+
+    assert PlainSchema.from_frame(PlainCompletion, frame) == row
 
 
-def test_unknown_type_fails_while_module_is_imported() -> None:
-    module_name = "tests.typed_polars.unknown_type_module"
-    sys.modules.pop(module_name, None)
+def test_schema_to_frame_many_supports_empty_rows() -> None:
+    frame = RowSchema.to_frame_many(Row, [])
+    assert frame.schema == tp.Builder.for_model(Row, schema=RowSchema).polars_schema()
+    builder = tp.Builder.for_model(Row, schema=RowSchema)
+    assert isinstance(builder, tp.Builder)
+    assert builder is tp.Builder.for_model(Row, schema=RowSchema)
+    assert builder.polars_schema() == frame.schema
 
-    with pytest.raises(TypeError, match="Cannot infer a Polars dtype"):
-        importlib.import_module(module_name)
 
-    assert module_name not in sys.modules
+def test_model_decorator_does_not_require_model_base_class() -> None:
+    class DecoratedSchema(tp.Schema):
+        value = tp.Column[str]()
+        corrected_query = tp.Column[str](polars_name="correctedQuery")
 
+    @tp.model(schema=DecoratedSchema)
+    class Decorated:
+        value: str
+        corrected_query: str
 
-@pytest.mark.parametrize(
-    "annotation",
-    (
-        list[complex],
-        dict[str, complex],
-    ),
-)
-def test_unknown_nested_container_type_fails_during_model_declaration(annotation: object) -> None:
-    with pytest.raises(TypeError, match="Cannot infer a Polars dtype"):
+    row = Decorated("one", "same")
+    frame = DecoratedSchema.to_frame(row)
 
-        @tp.model
-        class InvalidContainer(tp.Model):
-            value: annotation  # type: ignore[valid-type]
+    assert DecoratedSchema.from_frame(Decorated, frame) == row
+
+    @dataclass
+    class Wrong:
+        value: str
+        corrected_query: str
+
+    with pytest.raises(TypeError, match="Wrong has no builder"):
+        DecoratedSchema.to_frame(Wrong("one", "same"))
+    with pytest.raises(TypeError, match="Wrong has no builder"):
+        DecoratedSchema.from_frame(Wrong, frame)
