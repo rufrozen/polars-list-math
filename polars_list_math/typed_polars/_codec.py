@@ -11,7 +11,7 @@ from ._binding import get_builder
 from ._const import MODEL_PLAN_ATTRIBUTE, MODEL_SCHEMA_ATTRIBUTE
 from ._plans import PhysicalPlan
 from .context import Context, context_keys
-from .schema import FlatDict, ListStruct, Schema, Struct
+from .schema import FlatDict, FlatTuple, ListStruct, Schema, Struct
 
 
 def to_frame_many(
@@ -81,6 +81,14 @@ def to_dict(
                 result[column.physical_name(dynamic_key)] = (
                     None if child is None else child.get(dynamic_key)
                 )
+            continue
+        if by_polars_name and item.kind == "flat_tuple":
+            assert isinstance(column, FlatTuple)
+            field_path = _context_path + (column,)
+            keys = context_keys(context, column, field_path)
+            _validate_flat_tuple(item.name, child, keys)
+            for index, dynamic_key in enumerate(keys):
+                result[column.physical_name(dynamic_key)] = None if child is None else child[index]
             continue
         key = polars_name(cls, item.name) if by_polars_name else item.name
         nested_context_path = _context_path + (column,) if column is not None else _context_path
@@ -173,6 +181,14 @@ def unflatten(cls: type[Any], schema: type[Schema], data: Mapping[str, Any]) -> 
                     selected[key[len(prefix) :]] = value
             result[column.polars_name] = selected
             continue
+        if isinstance(column, FlatTuple):
+            prefix = f"{column.polars_name}{column.divider}"
+            selected_values: list[Any] = []
+            for key in tuple(result):
+                if key.startswith(prefix):
+                    selected_values.append(result.pop(key))
+            result[column.polars_name] = tuple(selected_values)
+            continue
         if item.kind not in ("struct", "list_struct") or not cast(Any, column).flat:
             continue
         prefix = f"{column.polars_name}{cast(Any, column).divider}"
@@ -248,6 +264,15 @@ def validate_row(
                 field_path,
             )
             continue
+        if item.kind == "flat_tuple":
+            column = schema.fields()[item.name]
+            assert isinstance(column, FlatTuple)
+            _validate_flat_tuple(
+                item.name,
+                getattr(row, item.name),
+                context_keys(context, column, _context_path + (column,)),
+            )
+            continue
         if item.nested is None:
             continue
         if item.name not in schema.fields():
@@ -293,8 +318,20 @@ def _validate_flat_dict(
         raise TypeError(f"FlatDict field {name!r} has unbound key(s): {rendered}")
 
 
+def _validate_flat_tuple(name: str, value: Any, keys: tuple[str, ...]) -> None:
+    if value is None:
+        return
+    if not isinstance(value, tuple):
+        raise TypeError(f"FlatTuple field {name!r} must be a tuple")
+    if len(value) != len(keys):
+        raise TypeError(
+            f"FlatTuple field {name!r} has {len(value)} value(s), "
+            f"but its context binds {len(keys)} position(s)"
+        )
+
+
 def infer_context(cls: type[Any], physical_schema: Mapping[str, Any]) -> Context:
-    """Infer FlatDict keys from a physical schema for reverse conversion."""
+    """Infer dynamic field keys from a physical schema for reverse conversion."""
     context = Context()
     _infer_context(cls, require_schema(cls), physical_schema, context, ())
     return context
@@ -311,7 +348,7 @@ def _infer_context(
         column = schema.fields().get(item.name)
         if column is None:
             continue
-        if isinstance(column, FlatDict):
+        if isinstance(column, (FlatDict, FlatTuple)):
             prefix = f"{column.polars_name}{column.divider}"
             keys = [name[len(prefix) :] for name in physical_fields if name.startswith(prefix)]
             context._bind_path(column, context_path + (column,), keys)

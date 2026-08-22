@@ -22,7 +22,7 @@ Each file is a standalone example of one part of `polars-list-math`:
 - [`typed_polars.py`](typed_polars.py) exercises every supported Python type,
   explicit dtype alias, container, and nested schema, including round-trip;
 - [`typed_polars_flat.py`](typed_polars_flat.py) demonstrates `FlatStruct`,
-  `FlatListStruct`, and runtime `FlatDict` storage;
+  `FlatListStruct`, `FlatDict`, and `FlatTuple` storage;
 
 Install the project, then run an example from the repository root:
 

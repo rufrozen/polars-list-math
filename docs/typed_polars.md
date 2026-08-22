@@ -102,7 +102,7 @@ Schema columns also provide typed expressions. Use `.fields` after `Struct` and
 `.item` after `ListStruct`, for example
 `RowSchema.items.item.score.expr()`.
 
-## Runtime dictionary columns
+## Runtime dynamic columns
 
 `FlatDict[T]` expands a model field annotated as `dict[str, T]` into physical
 columns selected at runtime. Bind the complete ordered key set in a `Context`
@@ -135,6 +135,29 @@ Reverse conversion does not take a context. `from_frame()` and `iter_frame()`
 discover dynamic keys by prefix and omit null values when rebuilding the
 dictionary. `FlatDict.key_expr("views")` creates an expression for one dynamic
 physical column. Physical plans are cached by the context binding snapshot.
+
+`FlatTuple[T]` provides positional storage for the same use case. Its model
+field is `tuple[T, ...]`, and the context names each position in order:
+
+```python
+class ScoresSchema(tp.Schema):
+    scores = tp.FlatTuple[float](divider="__")
+
+
+@tp.model(schema=ScoresSchema)
+class ScoresRow:
+    scores: tuple[float, ...] = ()
+
+
+context = tp.Context().bind(ScoresSchema.scores, ["precision", "recall"])
+frame = ScoresSchema.to_frame(ScoresRow((0.8, 0.6)), context=context)
+```
+
+This produces `scores__precision` and `scores__recall`. Tuple length must equal
+the number of bound names, so missing or extra positions cannot be silently
+discarded. With no binding only an empty tuple is valid. Reverse conversion
+discovers the physical columns by prefix and reconstructs their tuple order;
+`FlatTuple.key_expr("recall")` selects one runtime-named position.
 
 For a nested field, bind its path from the root schema, for example
 `context.bind(RowSchema.payload.fields.metrics, keys)`. Binding the original

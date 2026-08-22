@@ -13,7 +13,7 @@ from ._const import MODEL_PLAN_ATTRIBUTE, MODEL_SCHEMA_ATTRIBUTE, MODEL_SCHEMA_S
 from ._plans import FieldPlan, ModelPlan, PhysicalField, PhysicalPlan
 from ._records import is_named_tuple, is_record, record_fields
 from .context import Context, context_keys
-from .schema import FlatDict, ListStruct, Schema, Struct
+from .schema import FlatDict, FlatTuple, ListStruct, Schema, Struct
 
 
 def compile_model[T: type](cls: T, schema: type[Schema], *, strict: bool) -> T:
@@ -42,6 +42,8 @@ def compile_model[T: type](cls: T, schema: type[Schema], *, strict: bool) -> T:
                 nested, kind = inner, "list_struct"
         elif origin is dict:
             kind = "flat_dict" if isinstance(column, FlatDict) else "dict"
+        elif origin is tuple and isinstance(column, FlatTuple):
+            kind = "flat_tuple"
         plans.append(FieldPlan(item.name, annotation, kind, nested, item.has_default))
 
     type.__setattr__(cls, MODEL_PLAN_ATTRIBUTE, ModelPlan(cls, tuple(plans)))
@@ -116,18 +118,25 @@ def build_physical_plan(
         column = schema.fields().get(item.name)
         if column is None:
             continue
-        if item.kind == "flat_dict":
-            assert isinstance(column, FlatDict)
-            for key in context_keys(
-                context,
-                column,
-                context_path + (column,),
+        if item.kind in ("flat_dict", "flat_tuple"):
+            assert isinstance(column, (FlatDict, FlatTuple))
+            for index, key in enumerate(
+                context_keys(
+                    context,
+                    column,
+                    context_path + (column,),
+                )
             ):
+                getter = (
+                    _flat_dict_getter(item.name, key)
+                    if item.kind == "flat_dict"
+                    else _flat_tuple_getter(item.name, index)
+                )
                 physical.append(
                     PhysicalField(
                         column.physical_name(key),
                         column.dtype,
-                        _flat_dict_getter(item.name, key),
+                        getter,
                     )
                 )
             continue
@@ -206,6 +215,14 @@ def _flat_dict_getter(name: str, key: str) -> Callable[[Any], Any]:
         if not isinstance(value, Mapping):
             raise TypeError(f"Field {name!r} must be a mapping")
         return value.get(key)
+
+    return get
+
+
+def _flat_tuple_getter(name: str, index: int) -> Callable[[Any], Any]:
+    def get(row: Any) -> Any:
+        value = getattr(row, name)
+        return None if value is None else value[index]
 
     return get
 

@@ -60,12 +60,12 @@ class Context:
 
 def _validate_keys(keys: Iterable[str]) -> tuple[str, ...]:
     if isinstance(keys, (str, bytes)):
-        raise TypeError("FlatDict keys must be an iterable of strings")
+        raise TypeError("Context keys must be an iterable of strings")
     materialized = tuple(keys)
     if any(not isinstance(key, str) or not key for key in materialized):
-        raise TypeError("FlatDict keys must be non-empty strings")
+        raise TypeError("Context keys must be non-empty strings")
     if len(set(materialized)) != len(materialized):
-        raise TypeError("FlatDict keys must be unique")
+        raise TypeError("Context keys must be unique")
     return materialized
 
 

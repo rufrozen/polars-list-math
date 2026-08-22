@@ -173,6 +173,99 @@ class FlatDict[V](Column[dict[str, V]]):
         return result
 
 
+class FlatTuple[V](Column[tuple[V, ...]]):
+    """A tuple expanded into runtime-named physical columns."""
+
+    def __init__(
+        self,
+        *,
+        polars_name: str | None = None,
+        dtype: Any | None = None,
+        divider: str = "_",
+    ) -> None:
+        super().__init__(polars_name=polars_name, dtype=dtype)
+        _validate_divider(divider)
+        self.divider = divider
+        self._flat_tuple_source: FlatTuple[Any] = self
+
+    @property
+    def python_type(self) -> Any:
+        if self._python_type is None:
+            args = get_args(getattr(self, "__orig_class__", None))
+            if len(args) != 1:
+                raise TypeError(f"FlatTuple {self.name!r} requires a generic value type")
+            self._python_type = tuple[args[0], ...]
+        return self._python_type
+
+    @property
+    def value_type(self) -> Any:
+        """Return the declared Python value type."""
+        return get_args(self.python_type)[0]
+
+    @property
+    def context_source(self) -> object:
+        """Return the declaration shared by all bound field copies."""
+        return self._flat_tuple_source
+
+    @property
+    def context_path(self) -> tuple[object, ...]:
+        """Return this field's path from its root schema."""
+        return self._context_path
+
+    def physical_name(self, key: str) -> str:
+        """Return the physical column name for one runtime position name."""
+        return f"{self.polars_name}{self.divider}{key}"
+
+    def expr(self) -> pl.Expr:
+        """Reject ambiguous expressions without a runtime position name."""
+        raise TypeError("FlatTuple has no single column; use key_expr(key)")
+
+    def key_expr(self, key: str) -> pl.Expr:
+        """Build a Polars expression for one runtime-named tuple position."""
+        name = self.physical_name(key)
+        if not self._steps:
+            return pl.col(f"{self._root}{self.divider}{key}")
+        kind, _ = self._steps[-1]
+        steps = self._steps[:-1] + ((kind, name),)
+        return _apply_steps(pl.col(self._root), steps)
+
+    def _bind(
+        self,
+        *,
+        name: str,
+        root: str,
+        steps: tuple[tuple[str, str], ...],
+    ) -> Self:
+        self.name = name
+        if not self.polars_name:
+            self.polars_name = name
+        if self.dtype is None:
+            self.dtype = annotation_to_dtype(self.value_type)
+        self._root = root
+        self._steps = steps
+        return self
+
+    def _bound_copy(
+        self,
+        *,
+        root: str,
+        steps: tuple[tuple[str, str], ...],
+        context_path: tuple[Column[Any], ...],
+    ) -> FlatTuple[Any]:
+        result = FlatTuple[Any](
+            polars_name=self.polars_name,
+            dtype=self.dtype,
+            divider=self.divider,
+        )
+        result.name = self.name
+        result._python_type = self.python_type
+        result._root = root
+        result._steps = steps
+        result._context_path = context_path
+        result._flat_tuple_source = self._flat_tuple_source
+        return result
+
+
 class Struct[S: Schema](Column[S]):
     """A typed Polars Struct column with a nested schema."""
 
@@ -604,7 +697,7 @@ def _physical_fields(
 ) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for column in schema.__schema_columns__.values():
-        if isinstance(column, FlatDict):
+        if isinstance(column, (FlatDict, FlatTuple)):
             for key in context_keys(
                 context,
                 column,
