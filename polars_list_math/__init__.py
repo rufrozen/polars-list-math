@@ -28,8 +28,10 @@ from ._list_zip import install as _install_list_zip
 from ._list_zip import list_zip
 from ._url_build import url_build
 from ._url_query_encode import url_query_encode
+from ._zip_builder import ZipBuilder
 
 __all__ = [
+    "ZipBuilder",
     "install",
     "dfs_to_lazy_df",
     "expected_value_of_game",

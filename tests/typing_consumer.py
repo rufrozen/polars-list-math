@@ -2,6 +2,7 @@
 
 import polars as pl
 from polars_list_math import (
+    ZipBuilder,
     expected_value_of_game,
     json_array_values,
     json_object_items,
@@ -50,3 +51,11 @@ expressions: list[pl.Expr] = [
 ]
 
 containment: float = py_list_containment([1, 2], [1, 2, 3])
+
+zip_expression: pl.Expr = (
+    ZipBuilder("a", "b", pad=True)
+    .level(fields=["left", "right"])
+    .filter(pl.element().struct.field("left").is_not_null())
+    .eval(pl.element().struct.field("left") + pl.element().struct.field("right"))
+    .build("nested_zip")
+)

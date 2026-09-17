@@ -2,6 +2,8 @@
 
 Each file is a standalone example of one part of `polars-list-math`:
 
+- [`zip_builder.py`](zip_builder.py) zips nested lists with per-level
+  transformations, filtering, and scalar broadcasting;
 - [`list_zip.py`](list_zip.py) zips list columns into a list of structs, with optional scalar broadcasting;
 - [`combinations.py`](combinations.py) builds pairs within one list or between
   two lists;
@@ -27,6 +29,7 @@ Install the project, then run an example from the repository root:
 ```bash
 make develop
 uv run python examples/list_zip.py
+uv run python examples/zip_builder.py
 uv run python examples/containment.py
 uv run python examples/json_object_items.py
 uv run python examples/url_build.py

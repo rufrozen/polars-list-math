@@ -13,6 +13,7 @@ the existing Polars namespaces. Existing methods are not overwritten unless
 
 | Area | Top-level API | Runtime namespace API |
 |---|---|---|
+| Nested zip builder | `ZipBuilder` | none |
 | List zip | `list_zip` (`zip_list` internally) | `Expr.list.zip` |
 | Combinations | `list_combinations`, `list_combinations_to` | `Expr.list.combinations`, `Expr.list.combinations_to` |
 | Similarity | `list_similarity`, `list_mean_similarity`, `list_mean_similarity_to` | `Expr.list.similarity`, `Expr.list.mean_similarity`, `Expr.list.mean_similarity_to` |
@@ -35,6 +36,9 @@ installed `Expr.list` and `Expr.str` methods are runtime conveniences only.
   runtime Polars namespace methods.
 - `_list_zip.py` implements registration, validation, and fallback behavior for
   `list_zip` / `Expr.list.zip`.
+- `_zip_builder.py` composes nested zips with per-level eval/filter operations.
+  The constructor configures the outer zip; `level()` descends, and `build()`
+  returns an expression without evaluating data.
 - `_list_combinations.py` implements both same-list and cross-list pair
   combinations.
 - `_list_similarity.py` implements weighted list similarity, the scalar Python

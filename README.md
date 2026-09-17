@@ -149,6 +149,26 @@ More complete, runnable examples are available in the
 [`examples`](https://github.com/rufrozen/polars-list-math/tree/main/examples)
 directory.
 
+## Nested zip builder
+
+`ZipBuilder` combines nested list columns with zip options and ordered eval/filter
+operations at each level. `build()` returns a normal Polars expression:
+
+```python
+from polars_list_math import ZipBuilder
+
+expr = (
+    ZipBuilder("a", "b")
+    .level(pad=True)
+    .filter(pl.element().struct.field("a").is_not_null())
+    .build("nested_zip")
+)
+```
+
+The constructor configures the outer zip; each `level()` adds one inner zip.
+See the [builder guide](docs/zip_builder.md) for transformations, broadcasting,
+and deeper nesting.
+
 ## Performance experiments
 
 Reproducible performance experiments live in the [`performance`](performance)

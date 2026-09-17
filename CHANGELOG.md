@@ -9,6 +9,9 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- Added `ZipBuilder` for nested list zips with independent zip options and
+  ordered eval/filter operations at each depth; `build()` returns a Polars expression.
+
 - Added directed SERP containment (`|A ∩ B| / |A|`) with pairwise, mean-within-group,
   and mean-to-reference expression helpers, native Rust implementations, and
   Python fallbacks. Added `py_list_containment` for Python sequences.
