@@ -7,6 +7,8 @@ Each file is a standalone example of one part of `polars-list-math`:
   two lists;
 - [`similarity.py`](similarity.py) compares ordered lists in Polars and plain
   Python;
+- [`containment.py`](containment.py) compares SERPs using directed set containment
+  and averages within groups or against references;
 - [`mean_similarity.py`](mean_similarity.py) compares lists inside nested-list
   columns.
 - [`expected_value_of_game.py`](expected_value_of_game.py) computes the expected
@@ -25,6 +27,7 @@ Install the project, then run an example from the repository root:
 ```bash
 make develop
 uv run python examples/list_zip.py
+uv run python examples/containment.py
 uv run python examples/json_object_items.py
 uv run python examples/url_build.py
 ```

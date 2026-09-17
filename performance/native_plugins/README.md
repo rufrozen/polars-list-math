@@ -6,6 +6,7 @@
 - [`list_zip`](list_zip);
 - [`list_combinations`](list_combinations) — обе combinations-функции;
 - [`list_similarity`](list_similarity) — три similarity-функции;
+- [`list_containment`](list_containment) — три направленные containment-функции;
 - [`expected_value_of_game`](expected_value_of_game);
 - [`json_object_items`](json_object_items);
 - [`json_array_values`](json_array_values);

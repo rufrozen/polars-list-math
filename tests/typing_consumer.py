@@ -7,10 +7,14 @@ from polars_list_math import (
     json_object_items,
     list_combinations,
     list_combinations_to,
+    list_containment,
+    list_mean_containment,
+    list_mean_containment_to,
     list_mean_similarity,
     list_mean_similarity_to,
     list_similarity,
     list_zip,
+    py_list_containment,
     url_build,
     url_query_encode,
 )
@@ -28,6 +32,9 @@ expressions: list[pl.Expr] = [
     list_zip(items, pl.lit("RUB"), broadcast=True, fields=["item", "currency"]),
     list_combinations(items, skip_self=True),
     list_combinations_to(items, other),
+    list_containment(items, other),
+    list_mean_containment(nested),
+    list_mean_containment_to(nested, "reference"),
     list_similarity(items, other, p=0.9),
     list_mean_similarity(nested),
     list_mean_similarity_to(nested, pl.col("reference")),
@@ -41,3 +48,5 @@ expressions: list[pl.Expr] = [
         path=pl.col("path"),
     ),
 ]
+
+containment: float = py_list_containment([1, 2], [1, 2, 3])

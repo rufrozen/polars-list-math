@@ -1,26 +1,18 @@
 use std::ops::Range;
 
-use arrow::array::Array;
-use arrow::legacy::prelude::LargeListArray;
 use polars::prelude::*;
 use pyo3_polars::derive::polars_expr;
 use serde::Deserialize;
 
 use crate::list_similarity_core::{
     document_dtype as document_dtype_from_dtype, list_inner_dtype, prepare_list_inputs,
-    validate_document_dtypes, validate_p, weighted_jaccard, DocumentDtype, DocumentValues,
-    DocumentWeights,
+    validate_document_dtypes, validate_p, weighted_jaccard, DocumentDtype, DocumentWeights,
+    ListCollection,
 };
 
 #[derive(Clone, Debug, Deserialize)]
 struct ListMeanSimilarityKwargs {
     p: f64,
-}
-
-struct ListCollection<'a> {
-    outer: &'a LargeListArray,
-    inner: &'a LargeListArray,
-    values: DocumentValues<'a>,
 }
 
 fn list_mean_similarity_output(
@@ -108,53 +100,6 @@ fn list_mean_similarity_to(
     }
 
     Ok(builder.finish().into_series())
-}
-
-impl<'a> ListCollection<'a> {
-    fn try_new(ca: &'a ListChunked, function_name: &str) -> PolarsResult<Self> {
-        let outer = ca.downcast_as_array();
-        let Some(inner) = outer.values().as_any().downcast_ref::<LargeListArray>() else {
-            polars_bail!(
-                SchemaMismatch:
-                "{} expects dtype List(List(primitive)), got Arrow dtype {:?}",
-                function_name,
-                outer.values().dtype()
-            );
-        };
-
-        let values = DocumentValues::try_new(inner.values().as_ref(), function_name)?;
-        Ok(Self {
-            outer,
-            inner,
-            values,
-        })
-    }
-
-    fn is_valid(&self, row: usize) -> bool {
-        self.outer.is_valid(row)
-    }
-
-    fn row_range(&self, row: usize) -> Range<usize> {
-        let start = self.outer.offsets()[row] as usize;
-        let len = self.outer.offsets().length_at(row);
-        start..start + len
-    }
-
-    fn row_len(&self, row: usize) -> usize {
-        self.outer.offsets().length_at(row)
-    }
-
-    fn list_is_valid(&self, list_index: usize) -> bool {
-        self.inner.is_valid(list_index)
-    }
-
-    fn document_weights(&self, list_index: usize, p: f64) -> PolarsResult<DocumentWeights> {
-        let mut weights = DocumentWeights::new();
-        let start = self.inner.offsets()[list_index] as usize;
-        let len = self.inner.offsets().length_at(list_index);
-        self.values.extend_weights(start, len, p, &mut weights)?;
-        Ok(weights)
-    }
 }
 
 fn self_row_scores(

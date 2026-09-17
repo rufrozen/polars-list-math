@@ -5,6 +5,16 @@ All notable changes to `polars-list-math` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Added directed SERP containment (`|A ∩ B| / |A|`) with pairwise, mean-within-group,
+  and mean-to-reference expression helpers, native Rust implementations, and
+  Python fallbacks. Added `py_list_containment` for Python sequences.
+- Added containment documentation, runnable examples, and native-versus-fallback
+  performance experiments.
+
 ## [0.5.0] - 2026-09-17
 
 ### Removed

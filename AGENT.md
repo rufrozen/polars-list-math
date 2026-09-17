@@ -16,6 +16,7 @@ the existing Polars namespaces. Existing methods are not overwritten unless
 | List zip | `list_zip` (`zip_list` internally) | `Expr.list.zip` |
 | Combinations | `list_combinations`, `list_combinations_to` | `Expr.list.combinations`, `Expr.list.combinations_to` |
 | Similarity | `list_similarity`, `list_mean_similarity`, `list_mean_similarity_to` | `Expr.list.similarity`, `Expr.list.mean_similarity`, `Expr.list.mean_similarity_to` |
+| Containment | `list_containment`, `list_mean_containment`, `list_mean_containment_to`, `py_list_containment` | `Expr.list.containment`, `Expr.list.mean_containment`, `Expr.list.mean_containment_to` |
 | Python similarity | `py_list_similarity` | none |
 | Sequential game | `expected_value_of_game` | none |
 | JSON | `json_object_items`, `json_array_values` | `Expr.str.json_object_items`, `Expr.str.json_array_values` |
@@ -40,6 +41,8 @@ installed `Expr.list` and `Expr.str` methods are runtime conveniences only.
   API, shared Python scoring helpers, and native-library detection.
 - `_list_mean_similarity.py` implements self and reference mean-similarity for
   nested lists.
+- `_list_containment.py` implements directed set containment and its nested-list
+  means; empty target sets score zero and null peers are excluded.
 - `_expected_value_of_game.py` evaluates forward-only sequential games.
 - `_json_object_items.py` and `_json_array_values.py` convert JSON strings to
   nested Polars values and support strict/non-strict parsing.
@@ -64,11 +67,12 @@ indices, while values must remain equivalent.
   importable `_native` PyO3 module. Keep it small.
 - Feature implementations live in matching files:
   `list_zip.rs`, `list_combinations.rs`, `list_similarity.rs`,
-  `list_mean_similarity.rs`, `expected_value_of_game.rs`,
+  `list_mean_similarity.rs`, `list_containment.rs`, `expected_value_of_game.rs`,
   `json_object_items.rs`, `json_array_values.rs`, `url_query_encode.rs`, and
   `url_build.rs`.
-- `list_similarity_core.rs` contains scoring logic shared by both native
-  similarity modules.
+- `list_similarity_core.rs` contains shared primitive ID normalization, list
+  readers, and similarity scoring. Containment reuses its readers with unit
+  weights and computes directed intersection ratios.
 
 When adding a Rust-backed helper, give it a focused module under `rust/src/`,
 wire it from `rust/src/lib.rs`, add the Python API/fallback, export it where

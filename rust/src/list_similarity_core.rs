@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::ops::Range;
 
 use arrow::array::{
     Array, BinaryArray, BinaryViewArray, BooleanArray, Float16Array, NullArray, PrimitiveArray,
@@ -478,4 +479,61 @@ fn extend_utf8_weights<O: Offset>(
         }
     }
     Ok(())
+}
+
+pub(crate) struct ListCollection<'a> {
+    outer: &'a LargeListArray,
+    inner: &'a LargeListArray,
+    values: DocumentValues<'a>,
+}
+
+impl<'a> ListCollection<'a> {
+    pub(crate) fn try_new(ca: &'a ListChunked, function_name: &str) -> PolarsResult<Self> {
+        let outer = ca.downcast_as_array();
+        let Some(inner) = outer.values().as_any().downcast_ref::<LargeListArray>() else {
+            polars_bail!(
+                SchemaMismatch:
+                "{} expects dtype List(List(primitive)), got Arrow dtype {:?}",
+                function_name,
+                outer.values().dtype()
+            );
+        };
+
+        let values = DocumentValues::try_new(inner.values().as_ref(), function_name)?;
+        Ok(Self {
+            outer,
+            inner,
+            values,
+        })
+    }
+
+    pub(crate) fn is_valid(&self, row: usize) -> bool {
+        self.outer.is_valid(row)
+    }
+
+    pub(crate) fn row_range(&self, row: usize) -> Range<usize> {
+        let start = self.outer.offsets()[row] as usize;
+        let len = self.outer.offsets().length_at(row);
+        start..start + len
+    }
+
+    pub(crate) fn row_len(&self, row: usize) -> usize {
+        self.outer.offsets().length_at(row)
+    }
+
+    pub(crate) fn list_is_valid(&self, list_index: usize) -> bool {
+        self.inner.is_valid(list_index)
+    }
+
+    pub(crate) fn document_weights(
+        &self,
+        list_index: usize,
+        p: f64,
+    ) -> PolarsResult<DocumentWeights> {
+        let mut weights = DocumentWeights::new();
+        let start = self.inner.offsets()[list_index] as usize;
+        let len = self.inner.offsets().length_at(list_index);
+        self.values.extend_weights(start, len, p, &mut weights)?;
+        Ok(weights)
+    }
 }

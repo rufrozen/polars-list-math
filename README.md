@@ -28,12 +28,15 @@ Requires Python 3.12+ and `polars>=1.39.3`.
 
 | Method | Result | Docs |
 | --- | --- | --- |
-| `Expr.list.zip(...)` | Zip lists into `list[struct]` | [Polars proposal](https://github.com/pola-rs/polars/issues/22719) |
+| `Expr.list.zip(...)` | Zip lists into `list[struct]` | [List zip](docs/list_zip.md) |
 | `Expr.list.combinations(...)` | Pair items in one list, optionally skipping self-pairs | [Combinations](https://github.com/rufrozen/polars-list-math/blob/main/docs/combinations.md) |
 | `Expr.list.combinations_to(...)` | Pair each item with each item from another list | [Combinations](https://github.com/rufrozen/polars-list-math/blob/main/docs/combinations.md) |
 | `Expr.list.similarity(...)` | Weighted similarity between two lists | [Similarity](https://github.com/rufrozen/polars-list-math/blob/main/docs/similarity.md) |
 | `Expr.list.mean_similarity(...)` | Mean similarity inside a nested-list row | [Similarity](https://github.com/rufrozen/polars-list-math/blob/main/docs/similarity.md) |
 | `Expr.list.mean_similarity_to(...)` | Mean similarity to reference nested lists | [Similarity](https://github.com/rufrozen/polars-list-math/blob/main/docs/similarity.md) |
+| `Expr.list.containment(...)` | Fraction of unique IDs found in another list | [Containment](docs/containment.md) |
+| `Expr.list.mean_containment(...)` | Mean directed containment against peer lists | [Containment](docs/containment.md) |
+| `Expr.list.mean_containment_to(...)` | Mean directed containment against reference lists | [Containment](docs/containment.md) |
 | `Expr.str.json_object_items(...)` | Convert a JSON object to `list[struct[key, value]]` | [JSON object items](https://github.com/rufrozen/polars-list-math/blob/main/docs/json_object_items.md) |
 | `Expr.str.json_array_values(...)` | Convert a JSON array to `list[str]` | [JSON array values](https://github.com/rufrozen/polars-list-math/blob/main/docs/json_array_values.md) |
 
@@ -42,13 +45,16 @@ Pylance, and other type checkers:
 
 | Function | Result | Docs |
 | --- | --- | --- |
-| `list_zip(...)` | Zip lists into `list[struct]` | [Examples](https://github.com/rufrozen/polars-list-math/tree/main/examples) |
+| `list_zip(...)` | Zip lists into `list[struct]` | [List zip](docs/list_zip.md) |
 | `list_combinations(...)` | Pair items in one list | [Combinations](https://github.com/rufrozen/polars-list-math/blob/main/docs/combinations.md) |
 | `list_combinations_to(...)` | Pair items from two lists | [Combinations](https://github.com/rufrozen/polars-list-math/blob/main/docs/combinations.md) |
 | `expected_value_of_game(...)` | Expected value of a sequential game | [Expected value of a game](https://github.com/rufrozen/polars-list-math/blob/main/docs/expected_value_of_game.md) |
 | `list_similarity(...)` | Weighted similarity between two lists | [Similarity](https://github.com/rufrozen/polars-list-math/blob/main/docs/similarity.md) |
 | `list_mean_similarity(...)` | Mean similarity inside nested lists | [Similarity](https://github.com/rufrozen/polars-list-math/blob/main/docs/similarity.md) |
 | `list_mean_similarity_to(...)` | Mean similarity to reference nested lists | [Similarity](https://github.com/rufrozen/polars-list-math/blob/main/docs/similarity.md) |
+| `list_containment(...)` | Fraction of unique IDs found in another list | [Containment](docs/containment.md) |
+| `list_mean_containment(...)` | Mean directed containment against peer lists | [Containment](docs/containment.md) |
+| `list_mean_containment_to(...)` | Mean directed containment against reference lists | [Containment](docs/containment.md) |
 | `json_object_items(expr, strict=False)` | Convert a JSON object to `list[struct[key, value]]` | [JSON object items](https://github.com/rufrozen/polars-list-math/blob/main/docs/json_object_items.md) |
 | `json_array_values(expr, strict=False)` | Convert a JSON array to `list[str]` | [JSON array values](https://github.com/rufrozen/polars-list-math/blob/main/docs/json_array_values.md) |
 | `url_query_encode(expr, doseq=False)` | Encode a Struct or key/value list as a URL query string | [URL query encoding](https://github.com/rufrozen/polars-list-math/blob/main/docs/url_query_encode.md) |
@@ -56,7 +62,8 @@ Pylance, and other type checkers:
 | `dfs_to_lazy_df(...)` | Expose DataFrame batches as a pushdown-aware LazyFrame source | [Examples](https://github.com/rufrozen/polars-list-math/tree/main/examples) |
 
 The Python helper `py_list_similarity(...)` computes weighted similarity for
-plain Python sequences.
+plain Python sequences. `py_list_containment(...)` computes directed set
+containment for Python sequences, ignoring ranks and duplicates.
 
 The `Expr.list` and `Expr.str` methods are registered dynamically and remain
 available as convenient runtime syntax. Python type checkers cannot safely
@@ -173,28 +180,3 @@ make check-dist
 
 Release steps are in
 [docs/publishing.md](https://github.com/rufrozen/polars-list-math/blob/main/docs/publishing.md).
-
-### Broadcasting scalar values in `list_zip`
-
-Set `broadcast=True` to repeat scalar columns or literals within each row:
-
-```python
-frame = pl.DataFrame({"items": [[1, 2], [3]], "currency": ["RUB", "USD"]})
-frame.select(list_zip("items", "currency", broadcast=True).alias("zipped"))
-# [[{"items": 1, "currency": "RUB"}, {"items": 2, "currency": "RUB"}],
-#  [{"items": 3, "currency": "USD"}]]
-
-# For a constant string, use pl.lit; bare strings refer to columns.
-frame.select(list_zip(
-    "items", pl.lit("RUB"), broadcast=True, fields=["item", "currency"]
-))
-```
-
-The default is `broadcast=False`. With broadcasting enabled, at least one input
-must have `List` dtype. Only lists determine the result length: the shortest list
-with `pad=False`, or the longest with `pad=True`. Shorter lists are padded with
-nulls; scalar values repeat across the entire result. A scalar null becomes a
-null struct field, whereas a null list produces a null output row. An empty
-result list remains empty. This option is also available on `Expr.list.zip`.
-
-See [the runnable examples](examples/list_zip.py) for padding and null literals.

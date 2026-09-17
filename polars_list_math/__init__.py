@@ -8,6 +8,13 @@ from ._json_object_items import install as _install_json_object_items
 from ._json_object_items import json_object_items
 from ._list_combinations import install as _install_list_combinations
 from ._list_combinations import list_combinations, list_combinations_to
+from ._list_containment import install as _install_list_containment
+from ._list_containment import (
+    list_containment,
+    list_mean_containment,
+    list_mean_containment_to,
+    py_list_containment,
+)
 from ._list_mean_similarity import install as _install_list_mean_similarity
 from ._list_mean_similarity import list_mean_similarity, list_mean_similarity_to
 from ._list_similarity import (
@@ -30,6 +37,10 @@ __all__ = [
     "json_object_items",
     "list_combinations",
     "list_combinations_to",
+    "list_containment",
+    "list_mean_containment",
+    "list_mean_containment_to",
+    "py_list_containment",
     "list_mean_similarity",
     "list_mean_similarity_to",
     "list_similarity",
@@ -44,6 +55,7 @@ def install(*, overwrite: bool = False) -> None:
     _install_json_array_values(overwrite=overwrite)
     _install_json_object_items(overwrite=overwrite)
     _install_list_combinations(overwrite=overwrite)
+    _install_list_containment(overwrite=overwrite)
     _install_list_zip(overwrite=overwrite)
     _install_list_similarity(overwrite=overwrite)
     _install_list_mean_similarity(overwrite=overwrite)
