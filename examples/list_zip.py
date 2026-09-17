@@ -21,6 +21,29 @@ def main() -> None:
     )
     print(result)
 
+    # A scalar column is repeated within each row's list.
+    with_currency = frame.with_columns(pl.lit("RUB").alias("currency"))
+    print(
+        with_currency.select(
+            list_zip("product", "price", "currency", broadcast=True).alias("offers"),
+            # Only list lengths control padding; the scalar fills every element.
+            list_zip("product", "price", "currency", broadcast=True, pad=True).alias("padded"),
+        )
+    )
+
+    # Constants also work. Strings passed directly are column names, so use lit.
+    print(
+        frame.select(
+            list_zip(
+                "product",
+                pl.lit("RUB"),
+                pl.lit(None),
+                broadcast=True,
+                fields=["product", "currency", "discount"],
+            ).alias("offers"),
+        )
+    )
+
 
 if __name__ == "__main__":
     main()

@@ -46,3 +46,21 @@ def test_list_zip_complex_performance() -> None:
             lambda: plm.list_zip("integers", "floats", "strings", "booleans", pad=True),
         )
     )
+
+
+def test_list_zip_broadcast_performance() -> None:
+    frame = pl.DataFrame(
+        {
+            "items": [list(range(index, index + 24)) for index in range(ROW_COUNT)],
+            "price": [[index, index + 1] for index in range(ROW_COUNT)],
+            "currency": ["RUB" if index % 3 else None for index in range(ROW_COUNT)],
+        }
+    )
+    run_case(
+        PerformanceCase(
+            "list_zip_broadcast",
+            plugin_module("_list_zip"),
+            frame,
+            lambda: plm.list_zip("items", "price", "currency", broadcast=True, pad=True),
+        )
+    )

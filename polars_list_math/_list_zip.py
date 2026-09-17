@@ -19,6 +19,7 @@ _NATIVE_EXTENSIONS = {".so", ".pyd", ".dll", ".dylib"}
 def zip_list(
     *exprs: IntoExpr,
     pad: bool = False,
+    broadcast: bool = False,
     fields: Sequence[str] | None = None,
 ) -> pl.Expr:
     """Zip list expressions into a ``list[struct]`` expression.
@@ -26,13 +27,20 @@ def zip_list(
     Parameters
     ----------
     *exprs
-        List expressions to zip. Strings are parsed as column names.
+        List expressions to zip, or scalars when broadcast=True. Strings are
+        parsed as column names.
     pad
         If false, truncate to the shortest list. If true, pad shorter lists with
         nulls to match the longest list.
+    broadcast
+        Repeat scalars for every output element. At least one input must be a
+        List. Lists alone determine output length. Null scalars become null
+        fields; null lists produce null output rows.
     fields
         Optional struct field names. Defaults to the input expression names.
     """
+    if not isinstance(broadcast, bool):
+        raise TypeError("broadcast must be a bool")
     if not isinstance(pad, bool):
         msg = "pad must be a bool"
         raise TypeError(msg)
@@ -46,13 +54,59 @@ def zip_list(
             plugin_path=_LIB,
             function_name="list_zip",
             args=list(exprs),
-            kwargs={"pad": pad, "fields": field_names},
+            kwargs={"pad": pad, "fields": field_names, "broadcast": broadcast},
             is_elementwise=True,
             use_abs_path=True,
         )
 
     parsed_exprs = [_parse_into_expr(expr) for expr in exprs]
     fallback_field_names = field_names or _default_field_names(exprs, parsed_exprs)
+    if broadcast:
+
+        def zip_batch(columns: Sequence[pl.Series]) -> pl.Series:
+            is_list = [isinstance(column.dtype, pl.List) for column in columns]
+            if not any(is_list):
+                raise TypeError("broadcast requires at least one List input")
+            dtype = pl.List(
+                pl.Struct(
+                    [
+                        pl.Field(
+                            name,
+                            column.dtype.inner
+                            if isinstance(column.dtype, pl.List)
+                            else column.dtype,
+                        )
+                        for name, column in zip(fallback_field_names, columns, strict=True)
+                    ]
+                )
+            )
+            size = max((len(column) for column in columns if len(column) != 1), default=1)
+            if any(len(column) not in (1, size) for column in columns):
+                raise pl.exceptions.ShapeError("list_zip inputs must have matching row counts")
+            values = [column.to_list() for column in columns]
+            result = []
+            for index in range(size):
+                row = [value[0 if len(value) == 1 else index] for value in values]
+                lists = [value for value, listed in zip(row, is_list, strict=True) if listed]
+                if any(value is None for value in lists):
+                    result.append(None)
+                    continue
+                length = (max if pad else min)(len(value) for value in lists)
+                result.append(
+                    [
+                        {
+                            name: (value[i] if i < len(value) else None) if listed else value
+                            for name, value, listed in zip(
+                                fallback_field_names, row, is_list, strict=True
+                            )
+                        }
+                        for i in range(length)
+                    ]
+                )
+            return pl.Series(result, dtype=dtype)
+
+        return pl.map_batches(parsed_exprs, zip_batch, is_elementwise=True)
+
     aliases = [f"{_INPUT_PREFIX}{i}" for i in range(len(parsed_exprs))]
 
     row_expr = pl.struct(
@@ -95,6 +149,7 @@ def _expr_list_zip(
     self: Any,
     *others: IntoExpr,
     pad: bool = False,
+    broadcast: bool = False,
     fields: Sequence[str] | None = None,
 ) -> pl.Expr:
     base_expr = wrap_expr(self._pyexpr)
@@ -102,6 +157,7 @@ def _expr_list_zip(
         base_expr,
         *others,
         pad=pad,
+        broadcast=broadcast,
         fields=fields,
     )
 

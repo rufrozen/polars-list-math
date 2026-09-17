@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 use std::collections::HashSet;
 
 use arrow::array::builder::{make_builder, ShareStrategy};
@@ -14,6 +13,8 @@ use serde::Deserialize;
 #[derive(Clone, Debug, Deserialize)]
 struct ZipKwargs {
     pad: bool,
+    #[serde(default)]
+    broadcast: bool,
     fields: Option<Vec<String>>,
 }
 
@@ -24,12 +25,17 @@ fn list_zip_output(input_fields: &[Field], kwargs: ZipKwargs) -> PolarsResult<Fi
         input_fields.len()
     );
 
+    polars_ensure!(
+        !kwargs.broadcast || input_fields.iter().any(|field| matches!(field.dtype(), DataType::List(_))),
+        SchemaMismatch: "broadcast requires at least one List input"
+    );
     let field_names = normalized_field_names(input_fields, kwargs.fields.as_deref())?;
     let mut struct_fields = Vec::with_capacity(input_fields.len());
 
     for (input_field, field_name) in input_fields.iter().zip(field_names) {
         let inner_dtype = match input_field.dtype() {
             DataType::List(inner) => inner.as_ref().clone(),
+            dtype if kwargs.broadcast => dtype.clone(),
             dtype => {
                 polars_bail!(
                     SchemaMismatch:
@@ -60,15 +66,30 @@ fn list_zip(inputs: &[Series], kwargs: ZipKwargs) -> PolarsResult<Series> {
         .map(|series| Field::new(series.name().clone(), series.dtype().clone()))
         .collect();
     let field_names = normalized_field_names(&input_fields, kwargs.fields.as_deref())?;
+    let output_dtype = list_zip_output(&input_fields, kwargs.clone())?
+        .dtype()
+        .clone();
     let prepared = prepare_inputs(inputs)?;
-    let arrays: Vec<&LargeListArray> = prepared.iter().map(|ca| ca.downcast_as_array()).collect();
+    let arrays: Vec<&dyn Array> = prepared.iter().map(|s| s.chunks()[0].as_ref()).collect();
+    let lists: Vec<Option<&LargeListArray>> = arrays
+        .iter()
+        .zip(prepared.iter())
+        .map(|(array, series)| {
+            if matches!(series.dtype(), DataType::List(_)) {
+                Some(array.as_any().downcast_ref::<LargeListArray>().unwrap())
+            } else {
+                None
+            }
+        })
+        .collect();
 
     let rows = prepared[0].len();
-    let total_capacity = total_struct_values(&arrays, kwargs.pad);
+    let total_capacity = total_struct_values(&lists, rows, kwargs.pad);
     let mut child_builders = arrays
         .iter()
-        .map(|arr| {
-            let mut builder = make_builder(arr.values().dtype());
+        .zip(lists.iter())
+        .map(|(arr, list)| {
+            let mut builder = make_builder(list.map_or(arr.dtype(), |list| list.values().dtype()));
             builder.reserve(total_capacity);
             builder
         })
@@ -77,42 +98,47 @@ fn list_zip(inputs: &[Series], kwargs: ZipKwargs) -> PolarsResult<Series> {
     let mut offsets = Offsets::<i64>::with_capacity(rows);
 
     for row in 0..rows {
-        if arrays.iter().any(|arr| !arr.is_valid(row)) {
+        if lists.iter().flatten().any(|arr| !arr.is_valid(row)) {
             validity.push(false);
             offsets.try_push(0)?;
             continue;
         }
 
         validity.push(true);
-        let lengths = arrays
+        let lengths = lists
             .iter()
-            .map(|arr| arr.offsets().length_at(row))
-            .collect::<Vec<_>>();
+            .flatten()
+            .map(|arr| arr.offsets().length_at(row));
         let target_len = if kwargs.pad {
-            lengths.iter().copied().max().unwrap_or(0)
+            lengths.max()
         } else {
-            lengths.iter().copied().min().unwrap_or(0)
-        };
-
-        for ((arr, builder), source_len) in arrays
+            lengths.min()
+        }
+        .unwrap_or(0);
+        for ((arr, list), builder) in arrays
             .iter()
+            .zip(lists.iter())
             .zip(child_builders.iter_mut())
-            .zip(lengths.iter().copied())
         {
-            let source_start = arr.offsets()[row] as usize;
-            let copy_len = source_len.min(target_len);
-
-            if copy_len > 0 {
-                builder.subslice_extend(
-                    arr.values().as_ref(),
-                    source_start,
-                    copy_len,
-                    ShareStrategy::Always,
-                );
-            }
-
-            if kwargs.pad && source_len < target_len {
-                builder.extend_nulls(target_len - source_len);
+            if let Some(list) = list {
+                let source_len = list.offsets().length_at(row);
+                let source_start = list.offsets()[row] as usize;
+                let copy_len = source_len.min(target_len);
+                if copy_len > 0 {
+                    builder.subslice_extend(
+                        list.values().as_ref(),
+                        source_start,
+                        copy_len,
+                        ShareStrategy::Always,
+                    );
+                }
+                if source_len < target_len {
+                    builder.extend_nulls(target_len - source_len);
+                }
+            } else {
+                for _ in 0..target_len {
+                    builder.subslice_extend(*arr, row, 1, ShareStrategy::Always);
+                }
             }
         }
 
@@ -138,7 +164,6 @@ fn list_zip(inputs: &[Series], kwargs: ZipKwargs) -> PolarsResult<Series> {
         Box::new(struct_arr),
         validity.into(),
     );
-    let output_dtype = list_zip_output(&input_fields, kwargs)?.dtype().clone();
     let output = unsafe {
         ListChunked::from_chunks_and_dtype(
             inputs[0].name().clone(),
@@ -182,12 +207,17 @@ fn normalized_field_names(
     Ok(names)
 }
 
-fn prepare_inputs(inputs: &[Series]) -> PolarsResult<Vec<ListChunked>> {
-    let target_len = inputs.iter().map(|series| series.len()).max().unwrap_or(0);
+fn prepare_inputs(inputs: &[Series]) -> PolarsResult<Vec<Series>> {
+    let target_len = inputs
+        .iter()
+        .map(|series| series.len())
+        .filter(|len| *len != 1)
+        .max()
+        .unwrap_or(1);
     let mut out = Vec::with_capacity(inputs.len());
 
     for input in inputs {
-        let ca = input.list()?;
+        let ca = input;
         polars_ensure!(
             ca.len() == target_len || ca.len() == 1,
             ShapeMismatch:
@@ -197,35 +227,36 @@ fn prepare_inputs(inputs: &[Series]) -> PolarsResult<Vec<ListChunked>> {
         );
 
         let prepared = if ca.len() == target_len {
-            Cow::Borrowed(ca)
+            ca.clone()
         } else {
-            Cow::Owned(ca.new_from_index(0, target_len))
+            ca.new_from_index(0, target_len)
         };
-        out.push(prepared.rechunk().into_owned());
+        out.push(prepared.rechunk());
     }
 
     Ok(out)
 }
 
-fn total_struct_values(arrays: &[&LargeListArray], pad: bool) -> usize {
+fn total_struct_values(arrays: &[Option<&LargeListArray>], rows: usize, pad: bool) -> usize {
     if arrays.is_empty() {
         return 0;
     }
 
-    let rows = arrays[0].len();
     (0..rows)
         .map(|row| {
-            if arrays.iter().any(|arr| !arr.is_valid(row)) {
+            if arrays.iter().flatten().any(|arr| !arr.is_valid(row)) {
                 0
             } else if pad {
                 arrays
                     .iter()
+                    .flatten()
                     .map(|arr| arr.offsets().length_at(row))
                     .max()
                     .unwrap_or(0)
             } else {
                 arrays
                     .iter()
+                    .flatten()
                     .map(|arr| arr.offsets().length_at(row))
                     .min()
                     .unwrap_or(0)

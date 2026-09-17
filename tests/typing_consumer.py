@@ -25,6 +25,7 @@ expressions: list[pl.Expr] = [
     json_object_items(json, strict=True),
     json_array_values(json),
     list_zip(items, other, fields=["item", "other"]),
+    list_zip(items, pl.lit("RUB"), broadcast=True, fields=["item", "currency"]),
     list_combinations(items, skip_self=True),
     list_combinations_to(items, other),
     list_similarity(items, other, p=0.9),

@@ -2,7 +2,7 @@
 
 Each file is a standalone example of one part of `polars-list-math`:
 
-- [`list_zip.py`](list_zip.py) zips list columns into a list of structs;
+- [`list_zip.py`](list_zip.py) zips list columns into a list of structs, with optional scalar broadcasting;
 - [`combinations.py`](combinations.py) builds pairs within one list or between
   two lists;
 - [`similarity.py`](similarity.py) compares ordered lists in Polars and plain

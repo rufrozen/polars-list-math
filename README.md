@@ -173,3 +173,28 @@ make check-dist
 
 Release steps are in
 [docs/publishing.md](https://github.com/rufrozen/polars-list-math/blob/main/docs/publishing.md).
+
+### Broadcasting scalar values in `list_zip`
+
+Set `broadcast=True` to repeat scalar columns or literals within each row:
+
+```python
+frame = pl.DataFrame({"items": [[1, 2], [3]], "currency": ["RUB", "USD"]})
+frame.select(list_zip("items", "currency", broadcast=True).alias("zipped"))
+# [[{"items": 1, "currency": "RUB"}, {"items": 2, "currency": "RUB"}],
+#  [{"items": 3, "currency": "USD"}]]
+
+# For a constant string, use pl.lit; bare strings refer to columns.
+frame.select(list_zip(
+    "items", pl.lit("RUB"), broadcast=True, fields=["item", "currency"]
+))
+```
+
+The default is `broadcast=False`. With broadcasting enabled, at least one input
+must have `List` dtype. Only lists determine the result length: the shortest list
+with `pad=False`, or the longest with `pad=True`. Shorter lists are padded with
+nulls; scalar values repeat across the entire result. A scalar null becomes a
+null struct field, whereas a null list produces a null output row. An empty
+result list remains empty. This option is also available on `Expr.list.zip`.
+
+See [the runnable examples](examples/list_zip.py) for padding and null literals.
