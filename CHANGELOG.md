@@ -5,13 +5,14 @@ All notable changes to `polars-list-math` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.6.0] - 2026-09-18
 
 ### Added
 
 - Added `ZipBuilder` for nested list zips with independent zip options and
   ordered eval/filter operations at each depth; `build()` returns a Polars expression.
-
+- Added optional scalar broadcasting to `list_zip` and `Expr.list.zip`, including
+  support for null scalars and independent padding of list inputs.
 - Added directed SERP containment (`|A ∩ B| / |A|`) with pairwise, mean-within-group,
   and mean-to-reference expression helpers, native Rust implementations, and
   Python fallbacks. Added `py_list_containment` for Python sequences.
