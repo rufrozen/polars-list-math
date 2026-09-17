@@ -5,16 +5,24 @@ All notable changes to `polars-list-math` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-09-17
+
+### Removed
+
+- Removed `polars_list_math.typed_polars` and its tests, examples, guide, and
+  construction benchmark. Typed models and schemas are outside this package's
+  scope and may be developed separately.
+
 ## Release status notice
 
 Versions `0.4.0`, `0.4.1`, and `0.4.2` were unsuccessful preview releases of
 the typed Polars API. Their model, schema, and projection interfaces changed
-rapidly and do not represent the supported design. They are not recommended
-for use. Upgrade directly to `0.4.3`; migration may require rewriting code that
-used `polars_list_math.typed_polars` from those releases.
+rapidly. They are not recommended for use. Version `0.4.3` replaced those
+interfaces; version `0.5.0` removes `polars_list_math.typed_polars`
+entirely. The release notes below describe historical APIs.
 
 The list, similarity, game, JSON, and URL expression helpers remain available
-in `0.4.3`.
+in `0.5.0`.
 
 ## [0.4.3] - 2026-08-22
 
@@ -45,7 +53,7 @@ in `0.4.3`.
 - Treat the `typed_polars` API in this release as a replacement for the APIs
   shipped in `0.4.0`, `0.4.1`, and `0.4.2`, not as a drop-in patch.
 - Use `@model(schema=...)` on root records and use the model's cached `Builder`
-  for conversion. See `docs/typed_polars.md` for the current design.
+  for conversion. The guide is available in the `0.4.3` source distribution.
 
 ## [0.4.2] - 2026-08-17
 

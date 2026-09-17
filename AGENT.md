@@ -1,7 +1,7 @@
 # Agent Guide
 
 This repository is `polars-list-math`, a Python 3.12+/Rust package that adds
-list, JSON, URL, and typed-schema helpers to Polars. The distributable Python
+list, JSON, and URL helpers to Polars. The distributable Python
 package contains pure-Python fallbacks and a maturin-built Polars expression
 plugin named `polars_list_math._native`.
 
@@ -25,12 +25,6 @@ the existing Polars namespaces. Existing methods are not overwritten unless
 Treat the top-level expression functions as the static-analysis API. Pyright
 and Pylance cannot augment namespace classes owned by Polars, so dynamically
 installed `Expr.list` and `Expr.str` methods are runtime conveniences only.
-
-`polars_list_math.typed_polars` is a separate public API for schema-bound
-dataclasses and typed `NamedTuple` records. Its exports include `model`,
-`Schema`, `Builder`, `Context`, scalar dtype markers, and the `Column`, `Struct`,
-`ListStruct`, `FlatStruct`, `FlatListStruct`, `FlatDict`, and `FlatTuple` schema
-types.
 
 ## Project Layout
 
@@ -62,26 +56,6 @@ results aligned between both paths. Some physical dtypes may intentionally
 differ, such as UInt32 native combination indices versus inferred Int64 Python
 indices, while values must remain equivalent.
 
-### Typed Polars
-
-`polars_list_math/typed_polars/` has an intentionally acyclic internal graph:
-
-- `_plans.py` defines immutable logical and physical plans;
-- `_records.py` normalizes dataclass and typed NamedTuple fields;
-- `context.py` stores runtime `FlatDict` and `FlatTuple` bindings;
-- `_binding.py` resolves builders cached on root model classes;
-- `_compiler.py` validates record trees and compiles physical plans;
-- `_codec.py` serializes and deserializes records;
-- `builder.py` composes compilation, codecs, schemas, and model binding;
-- `schema.py` contains the schema DSL;
-- `dtypes.py` contains scalar dtype markers;
-- `model.py` contains the root-model decorator.
-
-Do not add function-local imports or cycles to these layers. `Schema` remains
-stateless; compiled builders belong to root model classes. Model/schema binding
-is non-strict by default and may be made exact with `@model(..., strict=True)`.
-Dynamic flat columns require explicit `Context.bind()` keys.
-
 ### Rust plugin
 
 - `rust/` is the only Rust crate and is built by maturin through
@@ -103,7 +77,7 @@ appropriate, and add native and fallback tests.
 ### Tests, docs, examples, and performance
 
 - `tests/` contains the regular pytest suite. Feature tests live in matching
-  `test_<feature>.py` files; typed Polars tests live under `tests/typed_polars/`.
+  `test_<feature>.py` files.
 - `docs/` contains feature guides and publishing instructions.
 - `CHANGELOG.md` records release notes, release status, and upgrade guidance;
   update it when preparing a release.
