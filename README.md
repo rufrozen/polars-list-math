@@ -60,6 +60,9 @@ Pylance, and other type checkers:
 | `url_query_encode(expr, doseq=False)` | Encode a Struct or key/value list as a URL query string | [URL query encoding](https://github.com/rufrozen/polars-list-math/blob/main/docs/url_query_encode.md) |
 | `url_build(...)` | Assemble a URL from optional component expressions | [URL building](https://github.com/rufrozen/polars-list-math/blob/main/docs/url_build.md) |
 | `dfs_to_lazy_df(...)` | Expose DataFrame batches as a pushdown-aware LazyFrame source | [Examples](https://github.com/rufrozen/polars-list-math/tree/main/examples) |
+| `find_null_schema(lf)` | Discover absent columns and nested fields | [Null schemas](docs/null_schema.md) |
+| `clean_schema(schema, subschema)` | Remove columns and fields described by a subschema | [Null schemas](docs/null_schema.md) |
+| `apply_schema(lf, schema)` | Select and cast a LazyFrame to the cleaned schema | [Null schemas](docs/null_schema.md) |
 
 The Python helper `py_list_similarity(...)` computes weighted similarity for
 plain Python sequences. `py_list_containment(...)` computes directed set

@@ -23,6 +23,7 @@ the existing Polars namespaces. Existing methods are not overwritten unless
 | JSON | `json_object_items`, `json_array_values` | `Expr.str.json_object_items`, `Expr.str.json_array_values` |
 | URL | `url_query_encode`, `url_build` | none |
 | DataFrame source | `dfs_to_lazy_df` | none |
+| Null schema | `find_null_schema`, `clean_schema`, `apply_schema` | none |
 
 Treat the top-level expression functions as the static-analysis API. Pyright
 and Pylance cannot augment namespace classes owned by Polars, so dynamically
@@ -54,6 +55,9 @@ installed `Expr.list` and `Expr.str` methods are runtime conveniences only.
 - `_url_build.py` assembles URLs from six optional component expressions.
 - `_dfs_to_lazy_df.py` exposes DataFrame batches as a pushdown-aware LazyFrame
   source. It is Python-only.
+- `_find_null_schema.py` discovers absent nested leaves with a lazy aggregate;
+  `_clean_schema.py` subtracts subschemas and applies the resulting schema
+  lazily. Both are Python-only and handle List, Array, and Struct nesting.
 - `py.typed` marks the installed package as typed.
 
 Rust-backed Python modules detect a compiled library beside the package. When

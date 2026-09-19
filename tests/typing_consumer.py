@@ -3,7 +3,10 @@
 import polars as pl
 from polars_list_math import (
     ZipBuilder,
+    apply_schema,
+    clean_schema,
     expected_value_of_game,
+    find_null_schema,
     json_array_values,
     json_object_items,
     list_combinations,
@@ -51,6 +54,14 @@ expressions: list[pl.Expr] = [
 ]
 
 containment: float = py_list_containment([1, 2], [1, 2, 3])
+
+lazy_frame = pl.LazyFrame({"value": [1, None], "missing": [None, None]})
+null_schema: pl.Schema = find_null_schema(lazy_frame)
+cleaned_schema: pl.Schema = clean_schema(lazy_frame.collect_schema(), null_schema)
+cleaned_frame: pl.LazyFrame = apply_schema(lazy_frame, cleaned_schema)
+projected_schema: pl.Schema = clean_schema(
+    lazy_frame.collect_schema(), subschema=pl.Schema({"value": pl.Int64})
+)
 
 zip_expression: pl.Expr = (
     ZipBuilder("a", "b", pad=True)

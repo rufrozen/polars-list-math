@@ -22,7 +22,9 @@ Each file is a standalone example of one part of `polars-list-math`:
 - [`url_query_encode.py`](url_query_encode.py) encodes Struct and key/value-list
   expressions as query strings;
 - [`url_build.py`](url_build.py) assembles URLs from optional component
-  expressions.
+  expressions;
+- [`null_schema.py`](null_schema.py) discovers absent nested fields, cleans
+  their schema, and applies it to a LazyFrame.
 
 Install the project, then run an example from the repository root:
 

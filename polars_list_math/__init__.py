@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from ._clean_schema import apply_schema, clean_schema
 from ._dfs_to_lazy_df import dfs_to_lazy_df
 from ._expected_value_of_game import expected_value_of_game
+from ._find_null_schema import find_null_schema
 from ._json_array_values import install as _install_json_array_values
 from ._json_array_values import json_array_values
 from ._json_object_items import install as _install_json_object_items
@@ -33,8 +35,11 @@ from ._zip_builder import ZipBuilder
 __all__ = [
     "ZipBuilder",
     "install",
+    "apply_schema",
+    "clean_schema",
     "dfs_to_lazy_df",
     "expected_value_of_game",
+    "find_null_schema",
     "json_array_values",
     "json_object_items",
     "list_combinations",
