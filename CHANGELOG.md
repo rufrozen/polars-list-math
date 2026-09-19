@@ -5,6 +5,26 @@ All notable changes to `polars-list-math` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-09-19
+
+### Added
+
+- Added `find_null_schema` to discover columns and fields without non-null
+  values across a LazyFrame, including nested List, Array, and Struct values.
+- Added `clean_schema` to remove a supplied subschema, including null-schema
+  results, and recursively prune containers whose fields have all been removed.
+- Added `apply_schema` to select and cast a LazyFrame to the resulting schema
+  while preserving nested values and parent nulls.
+- Added a guide, runnable example, and 79 schema-helper test cases covering
+  mixed nesting, empty data, dtype metadata, validation, and lazy execution.
+
+### Changed
+
+- Clarified the library's focus on DataFrames representing nested struct fields
+  as separate list columns, with a diagram of the representation.
+- Combined the README API tables around top-level functions, with an optional
+  column for equivalent namespace methods.
+
 ## [0.6.0] - 2026-09-18
 
 ### Added

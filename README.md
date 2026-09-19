@@ -1,7 +1,33 @@
 # polars-list-math
 
-`polars-list-math` is a Python/Rust package with list, JSON, and URL expression
-helpers for Polars.
+`polars-list-math` helps you work with Polars DataFrames in which every field
+of a nested list of structs is represented by its own column. Each field
+column preserves the original list nesting, so corresponding values remain
+aligned by row and by position at every list level.
+
+For example, a nested list of records with `price` and `qty` fields can be
+represented as two nested list columns in the same DataFrame:
+
+```mermaid
+flowchart LR
+    records["orders: List[List[Struct]]<br/>[[{price: 10, qty: 2}, {price: 20, qty: 1}],<br/>[{price: 30, qty: 4}]]"]
+    subgraph columns["Separate field columns — same DataFrame row"]
+        price["orders.price: List[List[Int64]]<br/>[[10, 20], [30]]"]
+        qty["orders.qty: List[List[Int64]]<br/>[[2, 1], [4]]"]
+    end
+    records -->|price| price
+    records -->|qty| qty
+```
+
+Each level of lists keeps its grouping, and each field becomes independently
+accessible as a column. The same representation extends to deeper nesting.
+The dotted column names above are illustrative.
+
+The library provides Python/Rust helpers for calculations on these list
+columns, comparing lists, and combining corresponding fields with
+[`list_zip`](docs/list_zip.md) and [`ZipBuilder`](docs/zip_builder.md).
+It also includes JSON and URL expressions, null-field discovery, and schema
+cleaning for preparing and transforming DataFrames and LazyFrames.
 
 Release notes and upgrade guidance are recorded in [CHANGELOG.md](CHANGELOG.md).
 
@@ -24,45 +50,32 @@ uv add polars-list-math
 
 Requires Python 3.12+ and `polars>=1.39.3`.
 
-## Methods
+## Functions
 
-| Method | Result | Docs |
-| --- | --- | --- |
-| `Expr.list.zip(...)` | Zip lists into `list[struct]` | [List zip](docs/list_zip.md) |
-| `Expr.list.combinations(...)` | Pair items in one list, optionally skipping self-pairs | [Combinations](https://github.com/rufrozen/polars-list-math/blob/main/docs/combinations.md) |
-| `Expr.list.combinations_to(...)` | Pair each item with each item from another list | [Combinations](https://github.com/rufrozen/polars-list-math/blob/main/docs/combinations.md) |
-| `Expr.list.similarity(...)` | Weighted similarity between two lists | [Similarity](https://github.com/rufrozen/polars-list-math/blob/main/docs/similarity.md) |
-| `Expr.list.mean_similarity(...)` | Mean similarity inside a nested-list row | [Similarity](https://github.com/rufrozen/polars-list-math/blob/main/docs/similarity.md) |
-| `Expr.list.mean_similarity_to(...)` | Mean similarity to reference nested lists | [Similarity](https://github.com/rufrozen/polars-list-math/blob/main/docs/similarity.md) |
-| `Expr.list.containment(...)` | Fraction of unique IDs found in another list | [Containment](docs/containment.md) |
-| `Expr.list.mean_containment(...)` | Mean directed containment against peer lists | [Containment](docs/containment.md) |
-| `Expr.list.mean_containment_to(...)` | Mean directed containment against reference lists | [Containment](docs/containment.md) |
-| `Expr.str.json_object_items(...)` | Convert a JSON object to `list[struct[key, value]]` | [JSON object items](https://github.com/rufrozen/polars-list-math/blob/main/docs/json_object_items.md) |
-| `Expr.str.json_array_values(...)` | Convert a JSON array to `list[str]` | [JSON array values](https://github.com/rufrozen/polars-list-math/blob/main/docs/json_array_values.md) |
+Top-level functions provide the statically typed API for Pyright, Pylance,
+and other type checkers. Where available, the optional `Method` column lists
+an equivalent runtime method registered when the package is imported.
 
-Top-level expression helpers provide the statically typed API for Pyright,
-Pylance, and other type checkers:
-
-| Function | Result | Docs |
-| --- | --- | --- |
-| `list_zip(...)` | Zip lists into `list[struct]` | [List zip](docs/list_zip.md) |
-| `list_combinations(...)` | Pair items in one list | [Combinations](https://github.com/rufrozen/polars-list-math/blob/main/docs/combinations.md) |
-| `list_combinations_to(...)` | Pair items from two lists | [Combinations](https://github.com/rufrozen/polars-list-math/blob/main/docs/combinations.md) |
-| `expected_value_of_game(...)` | Expected value of a sequential game | [Expected value of a game](https://github.com/rufrozen/polars-list-math/blob/main/docs/expected_value_of_game.md) |
-| `list_similarity(...)` | Weighted similarity between two lists | [Similarity](https://github.com/rufrozen/polars-list-math/blob/main/docs/similarity.md) |
-| `list_mean_similarity(...)` | Mean similarity inside nested lists | [Similarity](https://github.com/rufrozen/polars-list-math/blob/main/docs/similarity.md) |
-| `list_mean_similarity_to(...)` | Mean similarity to reference nested lists | [Similarity](https://github.com/rufrozen/polars-list-math/blob/main/docs/similarity.md) |
-| `list_containment(...)` | Fraction of unique IDs found in another list | [Containment](docs/containment.md) |
-| `list_mean_containment(...)` | Mean directed containment against peer lists | [Containment](docs/containment.md) |
-| `list_mean_containment_to(...)` | Mean directed containment against reference lists | [Containment](docs/containment.md) |
-| `json_object_items(expr, strict=False)` | Convert a JSON object to `list[struct[key, value]]` | [JSON object items](https://github.com/rufrozen/polars-list-math/blob/main/docs/json_object_items.md) |
-| `json_array_values(expr, strict=False)` | Convert a JSON array to `list[str]` | [JSON array values](https://github.com/rufrozen/polars-list-math/blob/main/docs/json_array_values.md) |
-| `url_query_encode(expr, doseq=False)` | Encode a Struct or key/value list as a URL query string | [URL query encoding](https://github.com/rufrozen/polars-list-math/blob/main/docs/url_query_encode.md) |
-| `url_build(...)` | Assemble a URL from optional component expressions | [URL building](https://github.com/rufrozen/polars-list-math/blob/main/docs/url_build.md) |
-| `dfs_to_lazy_df(...)` | Expose DataFrame batches as a pushdown-aware LazyFrame source | [Examples](https://github.com/rufrozen/polars-list-math/tree/main/examples) |
-| `find_null_schema(lf)` | Discover absent columns and nested fields | [Null schemas](docs/null_schema.md) |
-| `clean_schema(schema, subschema)` | Remove columns and fields described by a subschema | [Null schemas](docs/null_schema.md) |
-| `apply_schema(lf, schema)` | Select and cast a LazyFrame to the cleaned schema | [Null schemas](docs/null_schema.md) |
+| Function | Method (optional) | Result | Docs |
+| --- | --- | --- | --- |
+| `list_zip(...)` | `Expr.list.zip(...)` | Zip lists into `list[struct]` | [List zip](docs/list_zip.md) |
+| `list_combinations(...)` | `Expr.list.combinations(...)` | Pair items in one list | [Combinations](https://github.com/rufrozen/polars-list-math/blob/main/docs/combinations.md) |
+| `list_combinations_to(...)` | `Expr.list.combinations_to(...)` | Pair items from two lists | [Combinations](https://github.com/rufrozen/polars-list-math/blob/main/docs/combinations.md) |
+| `expected_value_of_game(...)` | — | Expected value of a sequential game | [Expected value of a game](https://github.com/rufrozen/polars-list-math/blob/main/docs/expected_value_of_game.md) |
+| `list_similarity(...)` | `Expr.list.similarity(...)` | Weighted similarity between two lists | [Similarity](https://github.com/rufrozen/polars-list-math/blob/main/docs/similarity.md) |
+| `list_mean_similarity(...)` | `Expr.list.mean_similarity(...)` | Mean similarity inside nested lists | [Similarity](https://github.com/rufrozen/polars-list-math/blob/main/docs/similarity.md) |
+| `list_mean_similarity_to(...)` | `Expr.list.mean_similarity_to(...)` | Mean similarity to reference nested lists | [Similarity](https://github.com/rufrozen/polars-list-math/blob/main/docs/similarity.md) |
+| `list_containment(...)` | `Expr.list.containment(...)` | Fraction of unique IDs found in another list | [Containment](docs/containment.md) |
+| `list_mean_containment(...)` | `Expr.list.mean_containment(...)` | Mean directed containment against peer lists | [Containment](docs/containment.md) |
+| `list_mean_containment_to(...)` | `Expr.list.mean_containment_to(...)` | Mean directed containment against reference lists | [Containment](docs/containment.md) |
+| `json_object_items(expr, strict=False)` | `Expr.str.json_object_items(...)` | Convert a JSON object to `list[struct[key, value]]` | [JSON object items](https://github.com/rufrozen/polars-list-math/blob/main/docs/json_object_items.md) |
+| `json_array_values(expr, strict=False)` | `Expr.str.json_array_values(...)` | Convert a JSON array to `list[str]` | [JSON array values](https://github.com/rufrozen/polars-list-math/blob/main/docs/json_array_values.md) |
+| `url_query_encode(expr, doseq=False)` | — | Encode a Struct or key/value list as a URL query string | [URL query encoding](https://github.com/rufrozen/polars-list-math/blob/main/docs/url_query_encode.md) |
+| `url_build(...)` | — | Assemble a URL from optional component expressions | [URL building](https://github.com/rufrozen/polars-list-math/blob/main/docs/url_build.md) |
+| `dfs_to_lazy_df(...)` | — | Expose DataFrame batches as a pushdown-aware LazyFrame source | [Examples](https://github.com/rufrozen/polars-list-math/tree/main/examples) |
+| `find_null_schema(lf)` | — | Discover absent columns and nested fields | [Null schemas](docs/null_schema.md) |
+| `clean_schema(schema, subschema)` | — | Remove columns and fields described by a subschema | [Null schemas](docs/null_schema.md) |
+| `apply_schema(lf, schema)` | — | Select and cast a LazyFrame to the cleaned schema | [Null schemas](docs/null_schema.md) |
 
 The Python helper `py_list_similarity(...)` computes weighted similarity for
 plain Python sequences. `py_list_containment(...)` computes directed set
