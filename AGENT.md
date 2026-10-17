@@ -86,6 +86,8 @@ indices, while values must remain equivalent.
 - `nested_join.rs` implements the nested lookup index, path traversal and typed
   payload gathering. `polars-core` enables additional value dtypes and Int128
   keys without enabling Polars I/O features.
+  Its compact index checks exact key equality along hash collision chains;
+  cached ancestor values and Arrow bulk gathering preserve all left positions.
 - `list_similarity_core.rs` contains shared primitive ID normalization, list
   readers, and similarity scoring. Containment reuses its readers with unit
   weights and computes directed intersection ratios.
@@ -130,6 +132,7 @@ make develop    # build/install the editable native extension
 make format     # format Python
 make lint       # Ruff format/check plus Pyright
 make test       # regular tests under tests/
+make test-rust  # Rust unit tests, including deterministic lookup hash collisions
 make build      # build wheel and source distribution
 make check-dist # build and validate distributions with Twine
 make package    # create the requested source archive
@@ -149,6 +152,7 @@ cargo fmt --manifest-path rust/Cargo.toml
 make develop
 make lint
 make test
+make test-rust
 ```
 
 For packaging, dependency metadata, or Rust crate-layout changes, also run the

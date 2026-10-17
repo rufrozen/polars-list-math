@@ -442,3 +442,106 @@ def test_direct_lookup_rejects_float_types_and_deeper_keys(backend):
         frame.lazy().select(
             nested_lookup("right", on={"key": "id"}, shape="shape", values={"v": "v"})
         ).collect()
+
+
+@pytest.mark.parametrize("leaf_first", [False, True])
+def test_ancestor_changes_after_skipped_keys_and_between_rows(backend, leaf_first):
+    left = pl.DataFrame(
+        {
+            "group": [["a", None, "b"], ["a", "b", "a"]],
+            "id": [
+                [[[1, 2], [], [1]], [[1, 2]], [[None, 1], [2]]],
+                [[[2]], [[1, 2]], [[1, None, 2]]],
+            ],
+        }
+    )
+    right = pl.DataFrame({"g": ["a", "a", "b", "b"], "key": [1, 2, 1, 2], "v": [11, 12, 21, 22]})
+    on = {"id": "key", "group": "g"} if leaf_first else {"group": "g", "id": "key"}
+    actual = nested_join(left, right, on=on, shape="id", values={"v": "out"}, skip_null_keys=True)
+    assert actual["out"].to_list() == [
+        [[[11, 12], [], [11]], [[None, None]], [[None, 21], [22]]],
+        [[[12]], [[21, 22]], [[11, None, 12]]],
+    ]
+    assert_frame_equal(actual.select(left.columns), left)
+    with pytest.raises(pl.exceptions.PolarsError, match="null in left key"):
+        nested_join(left, right, on=on, shape="id", values={"v": "out"})
+
+
+@pytest.mark.parametrize("empty_right", [False, True])
+def test_gather_sliced_complex_payloads_and_missing_matches(backend, empty_right):
+    left = pl.DataFrame({"id": [[[3, 1, 3, 99, 2], [], None], None]})
+    right = pl.DataFrame(
+        {
+            "id": [0, 1, 2, 3, 4],
+            "text": ["excluded", "long-string-value-1", None, "long-string-value-3", "excluded"],
+            "binary": [b"excluded", b"long-binary-value-1\x00", None, b"", b"excluded"],
+            "object": [
+                {"items": [0], "flag": False},
+                {"items": [1, None], "flag": True},
+                None,
+                {"items": [], "flag": False},
+                {"items": [4], "flag": True},
+            ],
+        }
+    ).slice(1, 3)
+    if empty_right:
+        right = right.head(0)
+    actual = nested_join(
+        left,
+        right,
+        on={"id": "id"},
+        shape="id",
+        values={"text": "text", "binary": "binary", "object": "object"},
+    )
+    expected_values = {
+        "text": ["long-string-value-3", "long-string-value-1", "long-string-value-3", None, None],
+        "binary": [b"", b"long-binary-value-1\x00", b"", None, None],
+        "object": [
+            {"items": [], "flag": False},
+            {"items": [1, None], "flag": True},
+            {"items": [], "flag": False},
+            None,
+            None,
+        ],
+    }
+    expected = left.with_columns(
+        pl.Series(
+            name,
+            [[[None] * 5 if empty_right else values, [], None], None],
+            dtype=pl.List(pl.List(right.schema[name])),
+        )
+        for name, values in expected_values.items()
+    )
+    assert_frame_equal(actual, expected)
+
+
+def test_sliced_row_dictionaries_do_not_share_matches(backend):
+    frame = pl.DataFrame(
+        {
+            "id": [[1], [1, 2, 1], [1, 2, 1], [1], [1]],
+            "dict": pl.Series(
+                [
+                    [{"k": 1, "v": [0]}],
+                    [{"k": 1, "v": [10]}],
+                    [{"k": 1, "v": []}, {"k": 2, "v": [20, None]}],
+                    [],
+                    [{"k": 1, "v": [99]}],
+                ],
+                dtype=pl.List(pl.Struct({"k": pl.Int64, "v": pl.List(pl.Int64)})),
+            ),
+        }
+    ).slice(1, 3)
+    expr = nested_lookup("dict", on={"id": "k"}, shape="id", values={"v": "out"})
+    expected = (
+        pl.DataFrame(
+            {
+                "out": pl.Series(
+                    [[[10], None, [10]], [[], [20, None], []], [None]],
+                    dtype=pl.List(pl.List(pl.Int64)),
+                )
+            }
+        )
+        .to_struct("nested_lookup")
+        .to_frame()
+    )
+    assert_frame_equal(frame.select(expr), expected)

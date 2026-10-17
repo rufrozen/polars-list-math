@@ -18,6 +18,12 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Added correctness tests and a performance experiment comparing native,
   fallback, and explode/join/implode with precomputed positional indexes.
 
+### Changed
+
+- Optimize native nested joins with reusable traversal buffers, cached ancestor
+  keys, a compact right index with exact collision checks, and bulk Arrow
+  payload gathering. Keep full-right validation and null/empty list semantics.
+
 ## [0.7.0] - 2026-09-19
 
 ### Added

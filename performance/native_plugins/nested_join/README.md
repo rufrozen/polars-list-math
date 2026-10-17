@@ -62,6 +62,9 @@ are null on platforms without `/proc/self/status`.
 
 ## Recorded results
 
+These measurements describe the original implementation at `4662fd3`, before
+the optimizations documented in the [profiling report](profiling/README.md).
+
 Measured 2026-10-17 on AMD Ryzen 7 PRO 8840U, WSL2 / Linux x86_64,
 Python 3.12.13, Polars 1.42.1, Rust 1.96.1 and maturin 1.14.1.
 `POLARS_MAX_THREADS=4`; one warm-up and three measured repeats.
@@ -94,3 +97,17 @@ and native-library loading can dominate small cases.
 
 All twelve measurements, medians, throughputs, baselines and environment
 metadata are available in [results.json](results.json).
+
+## Native bottleneck investigation
+
+The [profiling report](profiling/README.md) separates index construction,
+lookup and payload gathering, compares isolated optimization prototypes, and
+records an uninstrumented confirmation run. The combined optimizations are now
+applied to the library, with regression tests and no diagnostic environment
+settings. The recorded baseline at `4662fd3` is retained for comparison.
+
+In the final paired run on the 20,000-row skewed workload, median full-call
+times were 452.17 ms for the baseline, 316.12 ms for the applied implementation
+and 383.16 ms for explode. See [applied_results.json](profiling/applied_results.json)
+for all four workloads and raw repetitions; these medians should be compared
+within that run, not with the historical minima above.

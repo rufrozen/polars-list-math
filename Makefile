@@ -6,7 +6,7 @@ PACKAGE_FILE ?= dist/polars-list-math-source.tar.gz
 UV_DEV_RUN ?= $(UV_CMD) run --no-sync --group dev
 UV_TWINE ?= $(UV_CMD) run --no-project --with twine
 
-.PHONY: init install lock develop format lint test build check-dist publish package clean
+.PHONY: init install lock develop format lint test test-rust build check-dist publish package clean
 
 init:
 	$(UV_CMD) sync --python $(PYTHON_VERSION) --all-extras --group dev --no-install-project
@@ -31,6 +31,11 @@ lint:
 
 test:
 	$(UV_DEV_RUN) pytest
+
+test-rust:
+	# Match maturin's interpreter path so PyO3 can reuse its build cache.
+	PYO3_PYTHON="$(CURDIR)/.venv/bin/python" \
+		cargo test --manifest-path rust/Cargo.toml --profile dev --lib
 
 build:
 	rm -rf build dist
