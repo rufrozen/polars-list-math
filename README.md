@@ -59,6 +59,8 @@ an equivalent runtime method registered when the package is imported.
 | Function | Method (optional) | Result | Docs |
 | --- | --- | --- | --- |
 | `list_zip(...)` | `Expr.list.zip(...)` | Zip lists into `list[struct]` | [List zip](docs/list_zip.md) |
+| `nested_join(...)` | — | Attach flat values using nested and ancestor keys | [Nested join](docs/nested_join.md) |
+| `nested_lookup(...)` | — | Look up a shared or row-local dictionary, preserving List structure | [Nested join](docs/nested_join.md) |
 | `list_combinations(...)` | `Expr.list.combinations(...)` | Pair items in one list | [Combinations](https://github.com/rufrozen/polars-list-math/blob/main/docs/combinations.md) |
 | `list_combinations_to(...)` | `Expr.list.combinations_to(...)` | Pair items from two lists | [Combinations](https://github.com/rufrozen/polars-list-math/blob/main/docs/combinations.md) |
 | `expected_value_of_game(...)` | — | Expected value of a sequential game | [Expected value of a game](https://github.com/rufrozen/polars-list-math/blob/main/docs/expected_value_of_game.md) |

@@ -1066,6 +1066,7 @@ version = "0.54.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "87d4892d5cc6461bb4a184d18e6fa03a5d316ee1d6de06a33dfa08d479fbc2db"
 dependencies = [
+ "atoi_simd",
  "bitflags",
  "bytemuck",
  "bytes",
@@ -1078,6 +1079,7 @@ dependencies = [
  "getrandom 0.3.4",
  "half",
  "hashbrown 0.16.1",
+ "itoa",
  "lz4",
  "num-traits",
  "polars-arrow-format",
@@ -1342,6 +1344,7 @@ version = "0.7.0"
 dependencies = [
  "polars",
  "polars-arrow",
+ "polars-core",
  "pyo3",
  "pyo3-polars",
  "serde",

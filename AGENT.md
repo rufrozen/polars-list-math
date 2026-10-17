@@ -15,6 +15,7 @@ the existing Polars namespaces. Existing methods are not overwritten unless
 |---|---|---|
 | Nested zip builder | `ZipBuilder` | none |
 | List zip | `list_zip` (`zip_list` internally) | `Expr.list.zip` |
+| Nested join | `nested_join`, `nested_lookup` | none |
 | Combinations | `list_combinations`, `list_combinations_to` | `Expr.list.combinations`, `Expr.list.combinations_to` |
 | Similarity | `list_similarity`, `list_mean_similarity`, `list_mean_similarity_to` | `Expr.list.similarity`, `Expr.list.mean_similarity`, `Expr.list.mean_similarity_to` |
 | Containment | `list_containment`, `list_mean_containment`, `list_mean_containment_to`, `py_list_containment` | `Expr.list.containment`, `Expr.list.mean_containment`, `Expr.list.mean_containment_to` |
@@ -40,6 +41,10 @@ installed `Expr.list` and `Expr.str` methods are runtime conveniences only.
 - `_zip_builder.py` composes nested zips with per-level eval/filter operations.
   The constructor configures the outer zip; `level()` descends, and `build()`
   returns an expression without evaluating data.
+- `_nested_join.py` provides strict ancestor/leaf key lookup with a Rust plugin
+  and Python fallback. Lazy joins pack both inputs into one-row List[Struct]
+  containers and execute via a non-streaming batch callback; never duplicate a
+  shared right dictionary per left row or drop full-right validation.
 - `_list_combinations.py` implements both same-list and cross-list pair
   combinations.
 - `_list_similarity.py` implements weighted list similarity, the scalar Python
@@ -62,8 +67,8 @@ installed `Expr.list` and `Expr.str` methods are runtime conveniences only.
 
 Rust-backed Python modules detect a compiled library beside the package. When
 it is present they call `polars.plugins.register_plugin_function`; otherwise
-they construct a Python `map_elements` fallback. Keep validation and observable
-results aligned between both paths. Some physical dtypes may intentionally
+they construct a Python `map_elements` or `map_batches` fallback. Keep validation
+and observable results aligned between both paths. Some physical dtypes may intentionally
 differ, such as UInt32 native combination indices versus inferred Int64 Python
 indices, while values must remain equivalent.
 
@@ -78,6 +83,9 @@ indices, while values must remain equivalent.
   `list_mean_similarity.rs`, `list_containment.rs`, `expected_value_of_game.rs`,
   `json_object_items.rs`, `json_array_values.rs`, `url_query_encode.rs`, and
   `url_build.rs`.
+- `nested_join.rs` implements the nested lookup index, path traversal and typed
+  payload gathering. `polars-core` enables additional value dtypes and Int128
+  keys without enabling Polars I/O features.
 - `list_similarity_core.rs` contains shared primitive ID normalization, list
   readers, and similarity scoring. Containment reuses its readers with unit
   weights and computes directed intersection ratios.

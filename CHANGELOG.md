@@ -5,6 +5,19 @@ All notable changes to `polars-list-math` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Added `nested_join` and `nested_lookup` with native Rust execution and Python
+  fallbacks for matching scalar, ancestor and leaf keys without exploding left.
+- Preserve list structure and row/item order, enforce exact key types and
+  right-key uniqueness, and optionally skip null keys without removing positions.
+- Support all DataFrame/LazyFrame combinations, multiple typed payload columns,
+  and public expression lookup against shared or row-local dictionaries.
+- Added correctness tests and a performance experiment comparing native,
+  fallback, and explode/join/implode with precomputed positional indexes.
+
 ## [0.7.0] - 2026-09-19
 
 ### Added

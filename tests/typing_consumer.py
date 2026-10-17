@@ -18,6 +18,8 @@ from polars_list_math import (
     list_mean_similarity_to,
     list_similarity,
     list_zip,
+    nested_join,
+    nested_lookup,
     py_list_containment,
     url_build,
     url_query_encode,
@@ -69,4 +71,19 @@ zip_expression: pl.Expr = (
     .filter(pl.element().struct.field("left").is_not_null())
     .eval(pl.element().struct.field("left") + pl.element().struct.field("right"))
     .build("nested_zip")
+)
+
+join_left = pl.DataFrame({"sku": [[1, 2]]})
+join_right = pl.DataFrame({"sku": [1], "label": [3]})
+joined_eager: pl.DataFrame = nested_join(
+    join_left, join_right, on={"sku": "sku"}, shape="sku", values={"label": "label"}
+)
+joined_lazy: pl.LazyFrame = nested_join(
+    join_left, join_right.lazy(), on={"sku": "sku"}, shape="sku", values={"label": "label"}
+)
+joined_lazy_left: pl.LazyFrame = nested_join(
+    join_left.lazy(), join_right, on={"sku": "sku"}, shape="sku", values={"label": "label"}
+)
+lookup_expression: pl.Expr = nested_lookup(
+    "dictionary", on={"sku": "sku"}, shape="sku", values={"label": "label"}
 )

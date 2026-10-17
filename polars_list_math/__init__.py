@@ -28,6 +28,7 @@ from ._list_similarity import (
 )
 from ._list_zip import install as _install_list_zip
 from ._list_zip import list_zip
+from ._nested_join import nested_join, nested_lookup
 from ._url_build import url_build
 from ._url_query_encode import url_query_encode
 from ._zip_builder import ZipBuilder
@@ -52,6 +53,8 @@ __all__ = [
     "list_mean_similarity_to",
     "list_similarity",
     "list_zip",
+    "nested_join",
+    "nested_lookup",
     "py_list_similarity",
     "url_build",
     "url_query_encode",

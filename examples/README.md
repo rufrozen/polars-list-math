@@ -2,6 +2,8 @@
 
 Each file is a standalone example of one part of `polars-list-math`:
 
+- [`nested_join.py`](nested_join.py) attaches flat annotations using row,
+  ancestor and leaf keys without exploding nested left columns;
 - [`zip_builder.py`](zip_builder.py) zips nested lists with per-level
   transformations, filtering, and scalar broadcasting;
 - [`list_zip.py`](list_zip.py) zips list columns into a list of structs, with optional scalar broadcasting;

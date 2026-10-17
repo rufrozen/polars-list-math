@@ -7,6 +7,7 @@ mod list_mean_similarity;
 mod list_similarity;
 mod list_similarity_core;
 mod list_zip;
+mod nested_join;
 mod url_build;
 mod url_query_encode;
 
