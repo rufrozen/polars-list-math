@@ -1340,7 +1340,7 @@ dependencies = [
 
 [[package]]
 name = "polars-list-math"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "polars",
  "polars-arrow",
