@@ -120,7 +120,11 @@ def test_multidimensional_arrays() -> None:
     assert find_null_schema(frame) == pl.Schema({"x": pl.Array(pl.Struct({"b": pl.Null}), (2, 2))})
 
 
-def test_scans_all_batches_once_and_respects_filters() -> None:
+@pytest.mark.parametrize("engine", ["streaming", "in-memory"])
+def test_scans_all_batches_once_and_respects_filters(
+    monkeypatch: pytest.MonkeyPatch, engine: str
+) -> None:
+    monkeypatch.setenv("POLARS_ENGINE_AFFINITY", engine)
     scans: list[int] = []
     schema = pl.Schema({"a": pl.Int64, "b": pl.Int64})
 
@@ -137,6 +141,10 @@ def test_scans_all_batches_once_and_respects_filters() -> None:
         {"a": pl.Null, "b": pl.Null}
     )
     assert len(scans) == 2
+    assert find_null_schema(frame.filter(pl.col("a") > 10)) == pl.Schema(
+        {"a": pl.Null, "b": pl.Null}
+    )
+    assert len(scans) == 3
 
 
 def test_names_are_literal() -> None:

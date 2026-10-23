@@ -5,7 +5,9 @@ They are useful when you need to compare, score, or explode pairs from list
 columns.
 
 Both functions accept only list expressions and return list expressions. The
-result dtype is always `List(Struct(...))`.
+result dtype is always `List(Struct(...))`. Value fields preserve the input
+element dtypes, including nested types and empty results. Index fields use
+`UInt32` in both the Rust plugin and Python fallback.
 
 ## API
 

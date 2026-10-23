@@ -50,6 +50,27 @@ uv run pytest performance/native_plugins -v -s
 
 ## Контрольный прогон
 
+Проверка перехода на Polars 2.0.0 от 2026-10-24: Python 3.12.3, WSL Linux x86_64,
+release-сборка, 2 000 строк, 3 повтора. Все 38 сценариев прошли. Общий runner
+теперь проверяет совпадение типов вместе со значениями; индексы combinations
+имеют UInt32 в обеих реализациях.
+
+| Операция | Native | Python fallback | Ускорение |
+|---|---:|---:|---:|
+| `list_zip` | 0.000499 s | 0.014638 s | 29.32x |
+| `list_zip_complex` | 0.000837 s | 0.059503 s | 71.10x |
+| `list_zip_broadcast` | 0.000806 s | 0.214209 s | 265.73x |
+| `list_combinations` | 0.000710 s | 0.021357 s | 30.07x |
+| `list_combinations_to` | 0.000624 s | 0.015989 s | 25.62x |
+| `list_combinations_complex` | 0.001466 s | 0.123840 s | 84.48x |
+| `list_combinations_to_complex` | 0.001823 s | 0.156290 s | 85.74x |
+| `kendall_tau` | 0.000820 s | 0.022923 s | 27.95x |
+| `mean_kendall_tau` | 0.001196 s | 0.051190 s | 42.80x |
+| `mean_kendall_tau_to` | 0.001494 s | 0.081167 s | 54.33x |
+
+Это выборка из текущего прогона. Ниже сохранён исторический прогон с другой
+версией Polars; эти таблицы не являются сравнением версий на одинаковых условиях.
+
 Прогон 2026-08-22 с Python 3.12.3 и Polars 1.42.1:
 
 | Операция | Native | Python fallback | Ускорение |

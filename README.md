@@ -48,7 +48,13 @@ pip install polars-list-math
 uv add polars-list-math
 ```
 
-Requires Python 3.12+ and `polars>=1.39.3`.
+Requires Python 3.12+ and `polars>=2.0.0,<3`.
+
+Version 1.0 targets Polars 2 and includes a compatible Rust plugin. Upgrade
+`polars-list-math` and `polars` together; rebuild the plugin when using a source
+checkout. Projects using Polars 1 should keep `polars-list-math==0.9.0` and
+`polars<2`. See the [Polars 2 migration guide](https://docs.pola.rs/releases/upgrade/2/)
+for changes in Polars itself.
 
 ## Functions
 

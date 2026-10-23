@@ -30,9 +30,8 @@ def dfs_to_lazy_df(dfs: Iterable[pl.DataFrame], schema: pl.Schema) -> pl.LazyFra
         A LazyFrame backed by Polars' Python IO-plugin interface.
 
     Raises:
-        NotImplementedError: Internally raised when Polars requests ``n_rows``
-            pushdown. Polars wraps exceptions raised by Python IO sources in
-            ``polars.exceptions.ComputeError`` during collection.
+        polars.exceptions.ComputeError: Raised when Polars requests ``n_rows``
+            pushdown, with either the streaming or in-memory engine.
 
     Notes:
         ``head()``, ``limit()``, and equivalent operations that push a row
@@ -52,7 +51,7 @@ def dfs_to_lazy_df(dfs: Iterable[pl.DataFrame], schema: pl.Schema) -> pl.LazyFra
         batch_size: int | None,
     ) -> Iterator[pl.DataFrame]:
         if n_rows is not None:
-            raise NotImplementedError(
+            raise pl.exceptions.ComputeError(
                 "n_rows pushdown is not supported by dfs_to_lazy_df; "
                 "head(), limit(), and equivalent lazy operations cannot be used"
             )
@@ -71,7 +70,7 @@ def dfs_to_lazy_df(dfs: Iterable[pl.DataFrame], schema: pl.Schema) -> pl.LazyFra
             # If we would make a performant reader, we would not read these
             # columns at all.
             if with_columns is not None:
-                df = df.select(with_columns)
+                df = df.select(with_columns) if with_columns else pl.DataFrame(height=df.height)
 
             if batch_size is None or df.height <= batch_size:
                 yield df
@@ -83,7 +82,9 @@ def dfs_to_lazy_df(dfs: Iterable[pl.DataFrame], schema: pl.Schema) -> pl.LazyFra
 
 def _df_cast_schema(df: pl.DataFrame, schema: pl.Schema) -> pl.DataFrame:
     """Select, add, order, and cast columns to the requested schema."""
-    return df.select(
+    if not schema:
+        return pl.DataFrame(height=df.height)
+    return df.with_columns(
         pl.col(name).cast(dtype) if name in df.columns else pl.lit(None, dtype=dtype).alias(name)
         for name, dtype in schema.items()
-    )
+    ).select(list(schema))

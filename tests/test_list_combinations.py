@@ -47,6 +47,59 @@ def test_list_combinations_returns_list_of_structs() -> None:
     ]
 
 
+@pytest.mark.parametrize("fallback", [False, True])
+@pytest.mark.parametrize("empty", [False, True])
+def test_combinations_preserve_schema_with_empty_null_and_nested_values(
+    monkeypatch: pytest.MonkeyPatch, fallback: bool, empty: bool
+) -> None:
+    if fallback:
+        monkeypatch.setattr(_list_combinations, "_native_library_available", lambda: False)
+    inner = pl.Struct({"n": pl.UInt8})
+    df = pl.DataFrame(
+        {"a": [[], None, [None, 2]], "b": [[], [{"n": 3}], [{"n": 7}]]},
+        schema={"a": pl.List(pl.Int16), "b": pl.List(inner)},
+    )
+    if empty:
+        df = df.head(0)
+    query = df.lazy().select(
+        _list_combinations.list_combinations("a", with_index=True, skip_self=True).alias("self"),
+        _list_combinations.list_combinations_to("a", "b", left_value="x", right_value="y").alias(
+            "cross"
+        ),
+    )
+    expected_schema = pl.Schema(
+        {
+            "self": pl.List(
+                pl.Struct(
+                    {
+                        "left_index": pl.UInt32,
+                        "right_index": pl.UInt32,
+                        "left_value": pl.Int16,
+                        "right_value": pl.Int16,
+                    }
+                )
+            ),
+            "cross": pl.List(pl.Struct({"x": pl.Int16, "y": inner})),
+        }
+    )
+    assert query.collect_schema() == expected_schema
+    for engine in ("streaming", "in-memory"):
+        result = query.collect(engine=engine)
+        assert result.schema == expected_schema
+        assert result.to_dict(as_series=False) == {
+            "self": []
+            if empty
+            else [
+                [],
+                None,
+                [{"left_index": 0, "right_index": 1, "left_value": None, "right_value": 2}],
+            ],
+            "cross": []
+            if empty
+            else [[], None, [{"x": None, "y": {"n": 7}}, {"x": 2, "y": {"n": 7}}]],
+        }
+
+
 def test_list_combinations_supports_with_index() -> None:
     df = pl.DataFrame({"a": [[10, 20]]}, schema={"a": pl.List(pl.Int64)})
 

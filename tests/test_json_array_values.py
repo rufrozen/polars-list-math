@@ -74,3 +74,6 @@ def test_json_array_values_python_fallback(monkeypatch: pytest.MonkeyPatch) -> N
 
     assert result.dtype == pl.List(pl.String)
     assert result.to_list() == [["a", "1", None], None, None]
+
+    with pytest.raises(pl.exceptions.ComputeError, match="invalid JSON"):
+        df.lazy().select(json_array_values("json", strict=True)).collect()

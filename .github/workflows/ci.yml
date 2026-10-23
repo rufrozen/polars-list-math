@@ -27,7 +27,11 @@ jobs:
           enable-cache: true
 
       - run: make install PYTHON_VERSION=${{ matrix.python-version }}
-      - run: make develop
       - run: make lint
-      - run: make test
+      - name: Test Python fallbacks
+        run: make test
+      - run: make develop
+      - name: Test native plugin
+        run: make test
+      - run: make test-rust
       - run: make build

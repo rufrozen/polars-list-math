@@ -72,9 +72,9 @@ installed `Expr.list` and `Expr.str` methods are runtime conveniences only.
 Rust-backed Python modules detect a compiled library beside the package. When
 it is present they call `polars.plugins.register_plugin_function`; otherwise
 they construct a Python `map_elements` or `map_batches` fallback. Keep validation
-and observable results aligned between both paths. Some physical dtypes may intentionally
-differ, such as UInt32 native combination indices versus inferred Int64 Python
-indices, while values must remain equivalent.
+and observable results aligned between both paths, including nested output
+dtypes and UInt32 combination indices. Resolve fallback output types from the
+input schema rather than inferring them from sample Python values.
 
 ### Rust plugin
 

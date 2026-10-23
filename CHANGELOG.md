@@ -7,6 +7,39 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-10-24
+
+### Changed
+
+- Require `polars>=2.0.0,<3` and retain Python 3.12+ support. Update the Rust
+  plugin to Polars 0.55.2, pyo3-polars 0.28.0, and PyO3 0.29.
+- Resolve Python combination and list-zip output types from input schemas,
+  preserving nested and narrow dtypes even for empty results. Combination
+  indices now use UInt32 in both the native and Python implementations.
+- Run the full Python fallback suite in CI before building the Rust plugin,
+  followed by native and Rust unit tests. Validate matching values and dtypes
+  across all 38 performance scenarios on Polars 2.
+
+### Fixed
+
+- Keep `find_null_schema` correct with filtered empty batches under Polars 2's
+  default streaming engine, avoiding an incorrect aggregate optimization.
+- Preserve input batch height when `dfs_to_lazy_df` fills entirely missing
+  columns or produces a zero-column schema/projection. Unsupported row-limit pushdown
+  raises ComputeError consistently with either execution engine.
+- Raise a useful ComputeError for malformed JSON in strict Python fallbacks.
+- Accept List(Struct) values in the URL query fallback, preserving duplicate
+  keys and empty/null inputs.
+
+### Upgrading
+
+- Upgrade Polars and polars-list-math together. Rebuild native extensions from
+  source; plugin binaries built against Polars 1 are not compatible.
+- Keep `polars-list-math==0.9.0` with `polars<2` if migrating later. Existing
+  function signatures and namespace methods remain available in 1.0.
+- Review [Polars 2's migration guide](https://docs.pola.rs/releases/upgrade/2/)
+  for upstream changes, including streaming as the default lazy engine.
+
 ## [0.9.0] - 2026-10-24
 
 ### Added

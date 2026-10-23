@@ -11,10 +11,11 @@ uv run pytest performance/native_plugins/list_zip -v -s
 
 ## Результат
 
-Контрольный прогон 2026-09-18, 2 000 строк, 3 повтора, dev-сборка (`make develop`):
+Контрольный прогон 2026-10-24, Python 3.12.3, Polars 2.0.0, WSL Linux x86_64,
+release-сборка, 2 000 строк, 3 повтора. Типы и значения совпадают между реализациями.
 
 | Операция | Native | Python fallback | Ускорение |
 |---|---:|---:|---:|
-| `list_zip` | 0.002266 s | 0.013297 s | 5.87x |
-| `list_zip_complex` | 0.007798 s | 0.058415 s | 7.49x |
-| `list_zip_broadcast` | 0.009082 s | 0.056700 s | 6.24x |
+| `list_zip` | 0.000499 s | 0.014638 s | 29.32x |
+| `list_zip_complex` | 0.000837 s | 0.059503 s | 71.10x |
+| `list_zip_broadcast` | 0.000806 s | 0.214209 s | 265.73x |

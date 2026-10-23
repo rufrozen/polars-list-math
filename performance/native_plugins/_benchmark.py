@@ -35,8 +35,7 @@ def run_case(case: PerformanceCase) -> None:
     native_elapsed, native_result = _measure(_plan(case, native=True))
     fallback_elapsed, fallback_result = _measure(_plan(case, native=False))
 
-    # Combination indices are UInt32 in Rust and inferred as Int64 by Python.
-    assert_frame_equal(native_result, fallback_result, check_dtypes=False)
+    assert_frame_equal(native_result, fallback_result)
     speedup = fallback_elapsed / native_elapsed
     print(
         f"{case.name:>25} rows={ROW_COUNT:>7}: native={native_elapsed:.6f}s "

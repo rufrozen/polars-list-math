@@ -65,3 +65,19 @@ def test_url_query_encode_python_fallback(monkeypatch: pytest.MonkeyPatch) -> No
     result = df.select(url_query_encode(pl.struct("name", "tags"), doseq=True).alias("query"))
 
     assert result["query"].to_list() == ["name=Ada+Lovelace&tags=a&tags=b"]
+
+
+@pytest.mark.parametrize("fallback", [False, True])
+def test_list_struct_handles_duplicate_keys_empty_and_null(
+    monkeypatch: pytest.MonkeyPatch, fallback: bool
+) -> None:
+    if fallback:
+        monkeypatch.setattr(_url_query_encode, "_native_library_available", lambda: False)
+    df = pl.DataFrame(
+        {"q": [[{"key": "tag", "value": "a b"}, {"key": "tag", "value": "x&y"}], [], None]},
+        schema={"q": pl.List(pl.Struct({"key": pl.String, "value": pl.String}))},
+    )
+
+    result = df.lazy().select(url_query_encode("q")).collect()
+
+    assert result["q"].to_list() == ["tag=a+b&tag=x%26y", "", None]

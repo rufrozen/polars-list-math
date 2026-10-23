@@ -109,10 +109,6 @@ def zip_list(
 
     aliases = [f"{_INPUT_PREFIX}{i}" for i in range(len(parsed_exprs))]
 
-    row_expr = pl.struct(
-        expr.alias(alias) for expr, alias in zip(parsed_exprs, aliases, strict=True)
-    )
-
     def zip_row(row: Any) -> list[dict[str, Any]] | None:
         values = _row_values(row, aliases)
         if any(value is None for value in values):
@@ -126,11 +122,22 @@ def zip_list(
         rows = zip_longest(*values, fillvalue=None) if pad else zip(*values, strict=False)
         return [dict(zip(fallback_field_names, values_row, strict=True)) for values_row in rows]
 
-    return row_expr.map_elements(
-        zip_row,
-        return_dtype=None,
-        skip_nulls=False,
-    )
+    def with_dtypes(inputs: list[tuple[pl.Expr, pl.DataType]]) -> pl.Expr:
+        output_fields = []
+        for (_, dtype), name in zip(inputs, fallback_field_names, strict=True):
+            if not isinstance(dtype, (pl.List, pl.Array)):
+                raise TypeError("zip_list expects expressions with List or Array dtype")
+            output_fields.append(pl.Field(name, dtype.inner))
+        row_expr = pl.struct(
+            expr.alias(alias) for (expr, _), alias in zip(inputs, aliases, strict=True)
+        )
+        return row_expr.map_elements(
+            zip_row,
+            return_dtype=pl.List(pl.Struct(output_fields)),
+            skip_nulls=False,
+        )
+
+    return pl.pipe_with_dtype(parsed_exprs, with_dtypes)
 
 
 # Public functional name matching the native expression and the other helpers.

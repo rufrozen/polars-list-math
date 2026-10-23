@@ -77,9 +77,9 @@ def _json_object_items_row(
 
     try:
         decoded = json.loads(value)
-    except (json.JSONDecodeError, UnicodeDecodeError):
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         if strict:
-            raise
+            raise pl.exceptions.ComputeError(f"invalid JSON: {exc}") from exc
         return None
 
     if not isinstance(decoded, dict):

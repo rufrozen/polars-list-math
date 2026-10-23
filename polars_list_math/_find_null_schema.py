@@ -26,7 +26,10 @@ def find_null_schema(lf: pl.LazyFrame) -> pl.Schema:
     """
     schema = lf.collect_schema()
     checks = [
-        check.any().alias(str(index))
+        # Polars 2.0 rewrites is_not_null().any() to an aggregate that can
+        # misread filtered empty chunks in the streaming engine. Keep the
+        # row-level boolean evaluation before aggregation.
+        check.fill_null(False).any().alias(str(index))
         for index, check in enumerate(
             check
             for name, dtype in schema.items()

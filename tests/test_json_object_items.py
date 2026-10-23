@@ -123,3 +123,6 @@ def test_json_object_items_python_fallback(monkeypatch: pytest.MonkeyPatch) -> N
         None,
         None,
     ]
+
+    with pytest.raises(pl.exceptions.ComputeError, match="invalid JSON"):
+        df.lazy().select(json_object_items("json", strict=True)).collect()

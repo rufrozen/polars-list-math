@@ -66,9 +66,9 @@ def _json_array_values_row(value: Any, *, strict: bool) -> list[str | None] | No
 
     try:
         decoded = json.loads(value)
-    except (json.JSONDecodeError, UnicodeDecodeError):
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         if strict:
-            raise
+            raise pl.exceptions.ComputeError(f"invalid JSON: {exc}") from exc
         return None
 
     if not isinstance(decoded, list):

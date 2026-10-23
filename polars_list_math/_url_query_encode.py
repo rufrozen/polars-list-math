@@ -41,6 +41,8 @@ def url_query_encode(expr: IntoExpr, *, doseq: bool = False) -> pl.Expr:
 def _url_query_encode_row(value: Any, *, doseq: bool) -> str | None:
     if value is None:
         return None
+    if isinstance(value, pl.Series):
+        value = value.to_list()
     if isinstance(value, Mapping):
         query: Any = value
     elif isinstance(value, list):

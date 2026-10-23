@@ -54,11 +54,14 @@ def list_combinations(
 
     parsed_expr = _parse_into_expr(expr)
 
-    return parsed_expr.map_elements(
-        lambda value: _combinations_row(value, fields, skip_null, skip_self),
-        return_dtype=None,
-        skip_nulls=False,
-    )
+    def with_dtype(value_expr: pl.Expr, dtype: pl.DataType) -> pl.Expr:
+        return value_expr.map_elements(
+            lambda value: _combinations_row(value, fields, skip_null, skip_self),
+            return_dtype=_return_dtype(dtype, dtype, fields),
+            skip_nulls=False,
+        )
+
+    return parsed_expr.pipe_with_dtype(with_dtype)
 
 
 def list_combinations_to(
@@ -87,19 +90,36 @@ def list_combinations_to(
 
     parsed_exprs = [_parse_into_expr(expr), _parse_into_expr(target)]
     aliases = [f"{_INPUT_PREFIX}{index}" for index in range(2)]
-    row_expr = pl.struct(
-        parsed.alias(alias) for parsed, alias in zip(parsed_exprs, aliases, strict=True)
-    )
 
     def combinations_to_row(row: Any) -> list[dict[str, Any]] | None:
         left, right = _row_values(row, aliases)
         return _combinations_to_row(left, right, fields, skip_null)
 
-    return row_expr.map_elements(
-        combinations_to_row,
-        return_dtype=None,
-        skip_nulls=False,
+    def with_dtypes(inputs: list[tuple[pl.Expr, pl.DataType]]) -> pl.Expr:
+        row_expr = pl.struct(
+            parsed.alias(alias) for (parsed, _), alias in zip(inputs, aliases, strict=True)
+        )
+        return row_expr.map_elements(
+            combinations_to_row,
+            return_dtype=_return_dtype(inputs[0][1], inputs[1][1], fields),
+            skip_nulls=False,
+        )
+
+    return pl.pipe_with_dtype(parsed_exprs, with_dtypes)
+
+
+def _return_dtype(left: pl.DataType, right: pl.DataType, fields: _CombinationFields) -> pl.List:
+    if not isinstance(left, pl.List) or not isinstance(right, pl.List):
+        raise pl.exceptions.ComputeError("expected `List` inputs for list combinations")
+    output = []
+    if fields.include_index:
+        output.extend(
+            [pl.Field(fields.left_index, pl.UInt32), pl.Field(fields.right_index, pl.UInt32)]
+        )
+    output.extend(
+        [pl.Field(fields.left_value, left.inner), pl.Field(fields.right_value, right.inner)]
     )
+    return pl.List(pl.Struct(output))
 
 
 def install(*, overwrite: bool = False) -> None:

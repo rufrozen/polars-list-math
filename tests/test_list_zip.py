@@ -198,6 +198,23 @@ def test_broadcast_preserves_schema_and_nested_values(zip_backend: None, empty: 
     )
 
 
+@pytest.mark.parametrize("empty", [False, True])
+def test_list_zip_preserves_schema_without_broadcast(zip_backend: None, empty: bool) -> None:
+    inner = pl.Struct({"n": pl.Int32})
+    df = pl.DataFrame(
+        {"a": [[1, 2], [], None], "b": [[{"n": 7}], [], [{"n": 9}]]},
+        schema={"a": pl.List(pl.Int16), "b": pl.List(inner)},
+    )
+    if empty:
+        df = df.head(0)
+    query = df.lazy().select(_list_zip.list_zip("a", "b").alias("z"))
+    expected_dtype = pl.List(pl.Struct({"a": pl.Int16, "b": inner}))
+    assert query.collect_schema() == pl.Schema({"z": expected_dtype})
+    result = query.collect()
+    assert result.schema == pl.Schema({"z": expected_dtype})
+    assert result["z"].to_list() == ([] if empty else [[{"a": 1, "b": {"n": 7}}], [], None])
+
+
 def test_broadcast_null_list_and_empty_frame_with_literal(zip_backend: None) -> None:
     df = pl.DataFrame({"a": pl.Series([None], dtype=pl.List(pl.Int64))})
     expr = _list_zip.list_zip("a", pl.lit(5), broadcast=True, fields=["a", "b"])
