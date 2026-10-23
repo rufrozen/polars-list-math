@@ -7,6 +7,21 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-24
+
+### Added
+
+- Added `list_kendall_tau`, `list_mean_kendall_tau`,
+  `list_mean_kendall_tau_to`, and `py_list_kendall_tau`, with equivalent
+  `Expr.list` methods for the expression helpers.
+- Compare the first-occurrence order of common IDs with an O(n log n) Rust
+  implementation and Python fallback. Support primitive IDs, List/Array inputs,
+  scalar broadcasting, and nanosecond temporal precision.
+- Add optional `normalize=True` to map tau from `[-1, 1]` to `[0, 1]`.
+  Undefined comparisons return null and are excluded from nested-list means.
+- Added documentation, a runnable example, correctness tests, and six native
+  performance scenarios showing 7.2–13.4x speedups in the recorded release build.
+
 ## [0.8.0] - 2026-10-17
 
 ### Added

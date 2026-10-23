@@ -67,6 +67,9 @@ an equivalent runtime method registered when the package is imported.
 | `list_similarity(...)` | `Expr.list.similarity(...)` | Weighted similarity between two lists | [Similarity](https://github.com/rufrozen/polars-list-math/blob/main/docs/similarity.md) |
 | `list_mean_similarity(...)` | `Expr.list.mean_similarity(...)` | Mean similarity inside nested lists | [Similarity](https://github.com/rufrozen/polars-list-math/blob/main/docs/similarity.md) |
 | `list_mean_similarity_to(...)` | `Expr.list.mean_similarity_to(...)` | Mean similarity to reference nested lists | [Similarity](https://github.com/rufrozen/polars-list-math/blob/main/docs/similarity.md) |
+| `list_kendall_tau(...)` | `Expr.list.kendall_tau(...)` | Kendall tau of the common IDs' order | [Kendall tau](docs/kendall_tau.md) |
+| `list_mean_kendall_tau(...)` | `Expr.list.mean_kendall_tau(...)` | Mean tau against peer lists | [Kendall tau](docs/kendall_tau.md) |
+| `list_mean_kendall_tau_to(...)` | `Expr.list.mean_kendall_tau_to(...)` | Mean tau against reference lists | [Kendall tau](docs/kendall_tau.md) |
 | `list_containment(...)` | `Expr.list.containment(...)` | Fraction of unique IDs found in another list | [Containment](docs/containment.md) |
 | `list_mean_containment(...)` | `Expr.list.mean_containment(...)` | Mean directed containment against peer lists | [Containment](docs/containment.md) |
 | `list_mean_containment_to(...)` | `Expr.list.mean_containment_to(...)` | Mean directed containment against reference lists | [Containment](docs/containment.md) |
@@ -82,6 +85,8 @@ an equivalent runtime method registered when the package is imported.
 The Python helper `py_list_similarity(...)` computes weighted similarity for
 plain Python sequences. `py_list_containment(...)` computes directed set
 containment for Python sequences, ignoring ranks and duplicates.
+`py_list_kendall_tau(...)` compares the order of common IDs in Python sequences.
+All Kendall tau helpers accept `normalize=True` to map `[-1, 1]` to `[0, 1]`.
 
 The `Expr.list` and `Expr.str` methods are registered dynamically and remain
 available as convenient runtime syntax. Python type checkers cannot safely

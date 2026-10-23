@@ -11,6 +11,8 @@ Each file is a standalone example of one part of `polars-list-math`:
   two lists;
 - [`similarity.py`](similarity.py) compares ordered lists in Polars and plain
   Python;
+- [`kendall_tau.py`](kendall_tau.py) compares the order of common IDs, with
+  optional normalization and means against peers or references;
 - [`containment.py`](containment.py) compares SERPs using directed set containment
   and averages within groups or against references;
 - [`mean_similarity.py`](mean_similarity.py) compares lists inside nested-list

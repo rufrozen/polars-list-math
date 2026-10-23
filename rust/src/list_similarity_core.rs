@@ -12,6 +12,7 @@ use arrow::types::NativeType;
 use polars::prelude::*;
 
 pub(crate) type DocumentWeights = HashMap<DocumentKey, f64>;
+pub(crate) type DocumentRanks = HashMap<DocumentKey, usize>;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum DocumentKey {
@@ -76,9 +77,64 @@ impl<'a> DocumentList<'a> {
         self.values.extend_weights(start, len, p, &mut weights)?;
         Ok(weights)
     }
+
+    pub(crate) fn document_ranks(&self, row: usize) -> DocumentRanks {
+        self.values.document_ranks(
+            self.list.offsets()[row] as usize,
+            self.list.offsets().length_at(row),
+        )
+    }
 }
 
 impl<'a> DocumentValues<'a> {
+    fn document_ranks(&self, start: usize, len: usize) -> DocumentRanks {
+        let mut ranks = DocumentRanks::new();
+        macro_rules! read_ranks {
+            ($values:expr, $key:expr) => {{
+                let values = $values;
+                for index in start..start + len {
+                    if values.is_valid(index) {
+                        let rank = ranks.len();
+                        ranks.entry(($key)(values.value(index))).or_insert(rank);
+                    }
+                }
+            }};
+        }
+        match self {
+            Self::Boolean(v) => read_ranks!(v, DocumentKey::Boolean),
+            Self::Int8(v) => read_ranks!(v, |x: i8| DocumentKey::Signed(x.into())),
+            Self::Int16(v) => read_ranks!(v, |x: i16| DocumentKey::Signed(x.into())),
+            Self::Int32(v) => read_ranks!(v, |x: i32| DocumentKey::Signed(x.into())),
+            Self::Int64(v) => read_ranks!(v, |x: i64| DocumentKey::Signed(x.into())),
+            Self::Int128(v) => read_ranks!(v, DocumentKey::Signed),
+            Self::UInt8(v) => read_ranks!(v, |x: u8| DocumentKey::Unsigned(x.into())),
+            Self::UInt16(v) => read_ranks!(v, |x: u16| DocumentKey::Unsigned(x.into())),
+            Self::UInt32(v) => read_ranks!(v, |x: u32| DocumentKey::Unsigned(x.into())),
+            Self::UInt64(v) => read_ranks!(v, |x: u64| DocumentKey::Unsigned(x.into())),
+            Self::UInt128(v) => read_ranks!(v, DocumentKey::Unsigned),
+            Self::Float16(values) => {
+                for index in start..start + len {
+                    if values.is_valid(index) {
+                        let rank = ranks.len();
+                        ranks
+                            .entry(DocumentKey::Float(values.value(index).to_bits() as u64))
+                            .or_insert(rank);
+                    }
+                }
+            }
+            Self::Float32(v) => read_ranks!(v, |x: f32| DocumentKey::Float(x.to_bits() as u64)),
+            Self::Float64(v) => read_ranks!(v, |x: f64| DocumentKey::Float(x.to_bits())),
+            Self::Utf8View(v) => read_ranks!(v, |x: &str| DocumentKey::String(x.to_owned())),
+            Self::Utf8(v) => read_ranks!(v, |x: &str| DocumentKey::String(x.to_owned())),
+            Self::LargeUtf8(v) => read_ranks!(v, |x: &str| DocumentKey::String(x.to_owned())),
+            Self::BinaryView(v) => read_ranks!(v, |x: &[u8]| DocumentKey::Binary(x.to_vec())),
+            Self::Binary(v) => read_ranks!(v, |x: &[u8]| DocumentKey::Binary(x.to_vec())),
+            Self::LargeBinary(v) => read_ranks!(v, |x: &[u8]| DocumentKey::Binary(x.to_vec())),
+            Self::Null => {}
+        }
+        ranks
+    }
+
     pub(crate) fn try_new(values: &'a dyn Array, function_name: &str) -> PolarsResult<Self> {
         if let Some(values) = values.as_any().downcast_ref::<BooleanArray>() {
             return Ok(Self::Boolean(values));
@@ -523,6 +579,13 @@ impl<'a> ListCollection<'a> {
 
     pub(crate) fn list_is_valid(&self, list_index: usize) -> bool {
         self.inner.is_valid(list_index)
+    }
+
+    pub(crate) fn document_ranks(&self, list_index: usize) -> DocumentRanks {
+        self.values.document_ranks(
+            self.inner.offsets()[list_index] as usize,
+            self.inner.offsets().length_at(list_index),
+        )
     }
 
     pub(crate) fn document_weights(

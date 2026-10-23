@@ -17,6 +17,13 @@ from ._list_containment import (
     list_mean_containment_to,
     py_list_containment,
 )
+from ._list_kendall_tau import install as _install_list_kendall_tau
+from ._list_kendall_tau import (
+    list_kendall_tau,
+    list_mean_kendall_tau,
+    list_mean_kendall_tau_to,
+    py_list_kendall_tau,
+)
 from ._list_mean_similarity import install as _install_list_mean_similarity
 from ._list_mean_similarity import list_mean_similarity, list_mean_similarity_to
 from ._list_similarity import (
@@ -49,6 +56,10 @@ __all__ = [
     "list_mean_containment",
     "list_mean_containment_to",
     "py_list_containment",
+    "list_kendall_tau",
+    "list_mean_kendall_tau",
+    "list_mean_kendall_tau_to",
+    "py_list_kendall_tau",
     "list_mean_similarity",
     "list_mean_similarity_to",
     "list_similarity",
@@ -66,6 +77,7 @@ def install(*, overwrite: bool = False) -> None:
     _install_json_object_items(overwrite=overwrite)
     _install_list_combinations(overwrite=overwrite)
     _install_list_containment(overwrite=overwrite)
+    _install_list_kendall_tau(overwrite=overwrite)
     _install_list_zip(overwrite=overwrite)
     _install_list_similarity(overwrite=overwrite)
     _install_list_mean_similarity(overwrite=overwrite)

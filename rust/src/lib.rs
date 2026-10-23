@@ -3,6 +3,7 @@ mod json_array_values;
 mod json_object_items;
 mod list_combinations;
 mod list_containment;
+mod list_kendall_tau;
 mod list_mean_similarity;
 mod list_similarity;
 mod list_similarity_core;

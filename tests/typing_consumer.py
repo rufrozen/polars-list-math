@@ -12,8 +12,11 @@ from polars_list_math import (
     list_combinations,
     list_combinations_to,
     list_containment,
+    list_kendall_tau,
     list_mean_containment,
     list_mean_containment_to,
+    list_mean_kendall_tau,
+    list_mean_kendall_tau_to,
     list_mean_similarity,
     list_mean_similarity_to,
     list_similarity,
@@ -21,6 +24,7 @@ from polars_list_math import (
     nested_join,
     nested_lookup,
     py_list_containment,
+    py_list_kendall_tau,
     url_build,
     url_query_encode,
 )
@@ -42,6 +46,9 @@ expressions: list[pl.Expr] = [
     list_mean_containment(nested),
     list_mean_containment_to(nested, "reference"),
     list_similarity(items, other, p=0.9),
+    list_kendall_tau(items, other, normalize=True),
+    list_mean_kendall_tau(nested),
+    list_mean_kendall_tau_to(nested, "reference", normalize=True),
     list_mean_similarity(nested),
     list_mean_similarity_to(nested, pl.col("reference")),
     url_query_encode(
@@ -56,6 +63,7 @@ expressions: list[pl.Expr] = [
 ]
 
 containment: float = py_list_containment([1, 2], [1, 2, 3])
+kendall_tau: float | None = py_list_kendall_tau([1, 2], [2, 1], normalize=True)
 
 lazy_frame = pl.LazyFrame({"value": [1, None], "missing": [None, None]})
 null_schema: pl.Schema = find_null_schema(lazy_frame)
